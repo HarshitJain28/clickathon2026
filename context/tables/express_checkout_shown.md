@@ -3,8 +3,8 @@ id: table.express_checkout_shown
 kind: table
 status: verified
 confidence: high
-source: out/01_express_checkout/ddl.sql + justification.md (schema); load_report.md — rows loaded, D2 overlap_pct
-last_verified: 2026-08-01
+source: out/01_express_checkout/ddl.sql + justification.md (schema); load_report.md — rows loaded, D2 overlap_pct; analysis/q04.md — verified set-membership step-through, segment adoption
+last_verified: 2026-08-02
 links: [doc.envelope, doc.relationship, known_issue.d2_application_id_join_format, tables.index]
 ---
 
@@ -20,7 +20,7 @@ which only fires on the *standard* Pay Now tap — see
 | Rows | **1,650** (verified — `load_report.md`) |
 | Distinct users | 1,650 (1 per user, per profile.md) |
 | Sample time span | 2026-06-08 → 2026-06-28 (profile.md file-level span; not separately profiled per event) |
-| Step-through → `express_checkout_selected` | 1,007 / 1,650 = **61.03%** (row-count ratio — not a verified set-membership join; see D1) |
+| Step-through → `express_checkout_selected` | 1,007 / 1,650 = **61.03%** (**verified — exact set-membership subset**, `analysis/q04.md`, 2026-08-02: 100% of `selected` users are a subset of `shown` users) |
 
 This table carries only a **subset** of the shared 30-column envelope (see
 [the envelope](index.md)): `id`, `timestamp`, `user_id`, `application_id`,
@@ -50,6 +50,26 @@ via `application_id` until re-tested. See [known_issues.md](../known_issues.md) 
 does **not** lead with the random `id` UUID, per known_issues.md D8's explicit
 instruction that new tables must not repeat that anti-pattern. Categoricals use
 `LowCardinality(String)` per the same entry.
+
+## Segment adoption — verified (`analysis/q04.md`, 2026-08-02)
+
+"Adoption" = `express_checkout_selected` users ÷ `express_checkout_shown`
+users in each segment, within the sample window (2026-06-08→2026-06-28):
+
+- **Device:** flat — `android` 62.83% (338/538), `ios` 60.97% (428/702),
+  `Desktop` 60.87% (56/92), `web-user-b2c` 58.18% (185/318). Spread only
+  ~4.7pp — device is not a strong differentiator.
+- **Geo:** `AU` highest (67.9%, n=81), then `SA` (64.62%, n=65), `SG`
+  (63.95%, n=147); `AE` lowest (57.52%, n=153). `IN` is the only geo with a
+  large enough base (n=1,007, 60.18%) to trust closely — the rest (n=65–153)
+  are directional only.
+- **Saved-method type** (share of the 1,007 selections, not a rate): `card`
+  33.96%, `upi` 33.47%, `wallet` 32.57% — an even three-way split.
+
+Bottom line: geo shows the clearest (still modest) skew; device and
+saved-method type show little segmentation. Caveat: standalone-flow analysis
+only (D2 blocks joining to the main funnel or user demographics beyond these
+5 tables).
 
 ## Other risks carried forward (see `justification.md` for full reasoning)
 

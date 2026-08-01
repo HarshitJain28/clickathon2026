@@ -3,8 +3,8 @@ id: table.pay_now_clicked
 kind: table
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries
-last_verified: 2026-08-01
+source: clickathon DB — system.tables, system.columns, profiling queries; out/01_express_checkout/analysis/q02.md — K1 re-test using spec 01's new columns
+last_verified: 2026-08-02
 links: [doc.envelope, table.purchase_completed, known_issue.k1_ios_webkit_otp, spec.01_express_checkout]
 ---
 
@@ -43,3 +43,10 @@ Roughly **half of all payment intents fail to convert** (47.86%) — a large,
 genuinely unexplained leak that no known issue accounts for.
 [Spec 01 Express Checkout](../known_issues.md) adds
 `otp_attempts` / `otp_success`, the first instrumentation able to explain it.
+
+**2026-08-02 — that re-test has run, on Express Checkout's own tables**
+(`out/01_express_checkout/analysis/q02.md`, not this table): OTP failures
+there are 100% iOS-concentrated, a real but narrow finding scoped to Express
+Checkout (D2 blocks joining it back to this table). It does not explain this
+table's own 52.14% leak — that remains open. See
+[known_issues.md](../known_issues.md) → K1.

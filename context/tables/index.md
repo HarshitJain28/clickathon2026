@@ -3,8 +3,8 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables
-last_verified: 2026-08-01
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions
+last_verified: 2026-08-02
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
@@ -32,11 +32,19 @@ only its own event-specific columns.
 | [otp_entered](otp_entered.md) | express checkout | 1,007 | 1,007 | 100%* |
 | [express_payment_confirmed](express_payment_confirmed.md) | **express conversion** | 836 | 836 | 83.02%* |
 
-`*` Express Checkout step-through figures are row-count ratios from
-`load_report.md`, **not** verified set-membership joins (D1) — see each
-table's page. ⚠ All 5 Express Checkout tables' `application_id` returned
-**0% overlap** against `application_started` (D2 verify, `load_report.md`) —
-they do not join to the main funnel; treat as a standalone flow.
+`*` Express Checkout step-through figures were originally row-count ratios
+from `load_report.md`, not verified set-membership joins (D1). **2026-08-02
+update:** two of the three transitions are now **verified** exact
+set-membership joins on `user_id`, per the Analysis Agent's live queries —
+`express_checkout_shown → express_checkout_selected` (61.03%, 100% of
+`selected` is a subset of `shown` — `analysis/q04.md`) and
+`express_checkout_selected`/`otp_entered → express_payment_confirmed`
+(83.02%, exact 1:1 join, safe per D6 — `analysis/q01.md`, `q02.md`). The
+`→ saved_method_used` / `→ otp_entered` step (100%) remains an unverified
+row-count ratio — see each table's page. ⚠ All 5 Express Checkout tables'
+`application_id` returned **0% overlap** against `application_started` (D2
+verify, `load_report.md`, re-confirmed independently by `analysis/q01.md`–
+`q04.md`) — they do not join to the main funnel; treat as a standalone flow.
 
 **Total: 2,485,988 rows** (2,480,481 baseline + 5,507 Express Checkout).
 Data window: 2025-12-31 23:41 → 2026-07-01 03:01 (baseline); Express Checkout

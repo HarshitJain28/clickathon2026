@@ -20,6 +20,8 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, qu
 REPO_ROOT = Path(__file__).resolve().parent
 load_dotenv(REPO_ROOT / ".env")
 
+AGENT_MODEL = "claude-sonnet-5"
+
 if os.environ.get("CLAUDE_OAUTH_TOKEN") and not os.environ.get(
     "CLAUDE_CODE_OAUTH_TOKEN"
 ):
@@ -38,6 +40,7 @@ async def main():
         },
         allowed_tools=["mcp__clickhouse-cloud__*"],
         permission_mode="bypassPermissions",
+        model=AGENT_MODEL,
     )
 
     async for message in query(prompt=QUESTION, options=options):

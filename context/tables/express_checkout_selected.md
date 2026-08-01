@@ -3,8 +3,8 @@ id: table.express_checkout_selected
 kind: table
 status: verified
 confidence: high
-source: out/01_express_checkout/ddl.sql + justification.md (schema); load_report.md — rows loaded, D2 overlap_pct
-last_verified: 2026-08-01
+source: out/01_express_checkout/ddl.sql + justification.md (schema); load_report.md — rows loaded, D2 overlap_pct; analysis/q04.md — verified set-membership step-through
+last_verified: 2026-08-02
 links: [doc.envelope, doc.relationship, known_issue.d2_application_id_join_format, tables.index]
 ---
 
@@ -18,7 +18,7 @@ standard payment form. See `out/01_express_checkout/justification.md`.
 |---|---:|
 | Rows | **1,007** (verified — `load_report.md`) |
 | Distinct users | 1,007 (1 per user, per profile.md) |
-| Step-through from `express_checkout_shown` | **61.03%** (1,007 / 1,650 — row-count ratio, not a verified join; see D1) |
+| Step-through from `express_checkout_shown` | **61.03%** (1,007 / 1,650 — **verified** exact set-membership subset, `analysis/q04.md`, 2026-08-02) |
 | Step-through → `saved_method_used` / `otp_entered` | 1,007 / 1,007 = **100%** in this sample (row-count ratio) |
 
 This table carries only a **subset** of the shared 30-column envelope (see

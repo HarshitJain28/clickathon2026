@@ -39,6 +39,12 @@ from claude_agent_sdk import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent
+
+# Pinned so every run uses a known, consistently-priced model instead of
+# whatever the SDK/CLI's default happens to resolve to for the account
+# behind CLAUDE_CODE_OAUTH_TOKEN -- unpinned agent runs were a real
+# quota/cost driver (see log.md 2026-08-02).
+AGENT_MODEL = "claude-sonnet-5"
 PROFILER_SCRIPT = REPO_ROOT / "profiler.py"
 VENDORED_SKILLS_DIR = REPO_ROOT / ".skills"
 PROJECT_SKILLS_DIR = REPO_ROOT / ".claude" / "skills"
@@ -383,6 +389,7 @@ async def run_agent(
         skills=skill_names or None,
         setting_sources=["project"],
         max_turns=60,
+        model=AGENT_MODEL,
     )
 
     final_text_parts = []

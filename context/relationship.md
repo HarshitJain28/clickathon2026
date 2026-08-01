@@ -3,8 +3,8 @@ id: doc.relationship
 kind: relationship
 status: verified
 confidence: high
-source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables
-last_verified: 2026-08-01
+source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation
+last_verified: 2026-08-02
 links: [doc.business, doc.known_issues, tables.index]
 ---
 
@@ -127,6 +127,11 @@ a sequence of 5 events (`express_checkout_shown` → `express_checkout_selected`
 the existing `Application`/`User` entities, so no parallel model was created.
 Its `application_id` join to `Application` is present in schema but **not
 usable** — see the 0% overlap finding above and in `known_issues.md` → D2.
+**2026-08-02:** all 4 of the Analysis Agent's PM-question answers for this
+spec independently worked around this by joining Express Checkout's own
+tables on `user_id` instead (safe per D6) — none found a usable
+`application_id` path back to `Application`. See
+`out/01_express_checkout/analysis/q01.md`–`q04.md`.
 
 ### Entities `base_context.md` describes that do not exist
 

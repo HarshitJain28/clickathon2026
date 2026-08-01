@@ -7,25 +7,41 @@ inserts are high-stakes, so nothing here is guessed by a model.
 
 For a given spec, this script:
 
-1. Executes `ddl.sql` as-is (idempotent, matches the Instrumentation Agent's
-   own contract for that file).
+1. Executes `ddl.sql` as-is, in file order (idempotent, matches the
+   Instrumentation Agent's own contract for that file): `CREATE TABLE`,
+   `ALTER TABLE ... ADD COLUMN`, and `CREATE MATERIALIZED VIEW` all run
+   through the same statement loop before any data is touched, so an MV
+   defined in this file sees every row this run is about to insert.
 2. Reads `events.ndjson`, buckets each row by its own `event` field (which
    already equals its target table name — the one-table-per-event convention
    `instrumentation_notes.md` documents), and flattens one level of nested
    objects (`payment.amount` -> `payment_amount`) to match `ddl.sql`'s column
    naming.
-3. For any column whose DDL type is exactly `UUID`, auto-hyphenates a raw
+3. Loads every table that has a bucket of rows, whether this spec's `ddl.sql`
+   `CREATE`d it fresh or only `ALTER`d it -- column names/types are read back
+   from the live schema (`system.columns`) after DDL runs, so a table altered
+   in this spec (not created here) still gets its full, current column set
+   instead of being silently skipped.
+4. For any column whose live type is exactly `UUID`, auto-hyphenates a raw
    32-char hex id into the 36-char form ClickHouse's UUID type requires --
    this is a generic type-shape fix (every UUID column needs this to insert
    at all), independent of anything documented in known_issues.md.
-4. For any known_issues.md entry cited in this spec's `justification.md`
+5. For any known_issues.md entry cited in this spec's `justification.md`
    "Risks / caveats to carry forward" section that has a loader-actionable
    fix block (see context/SCHEMA.md's "Loader-actionable fix blocks" rule),
    applies its `-- normalize:` expression -- executed in ClickHouse itself
    via arrayMap, never reimplemented in Python -- to any table with a
    matching column, then runs its `-- verify:` query after load.
-5. Writes `load_report.md` into the output directory: rows loaded per table,
-   which normalizations fired, verification query results and verdicts.
+6. For any `CREATE MATERIALIZED VIEW ... TO <target> AS SELECT ... FROM
+   <source>` in `ddl.sql` whose `<source>` table was NOT created fresh by
+   this same spec (i.e. it already held rows from an earlier spec's load),
+   backfills `<target>` from `<source>`'s pre-existing rows before this
+   run's own inserts happen -- MVs are incremental-only in ClickHouse and
+   never backfill historical data on their own (see
+   `.skills/clickhouse-best-practices/rules/query-mv-incremental.md`).
+7. Writes `load_report.md` into the output directory: rows loaded per table
+   (and whether each was created or altered), which normalizations fired,
+   verification query results and verdicts, and any MV backfills performed.
 
 A 0% (or any other) verification result is a *finding*, not a failure -- it
 is recorded and the script still exits 0. Only a technical failure (DB
@@ -81,9 +97,12 @@ def split_top_level(s, sep=","):
 
 def parse_ddl_tables(ddl_text):
     """Return {table_name: [(column_name, column_type), ...]} for every
-    CREATE TABLE in ddl_text. ALTER TABLE / MATERIALIZED VIEW statements are
-    intentionally out of scope -- populating new columns on existing rows is
-    a mutation, not an insert-only load, and deserves separate handling."""
+    CREATE TABLE in ddl_text. Used to know which tables this spec created
+    fresh (as opposed to only ALTERed) -- see parse_ddl_altered_tables and
+    parse_ddl_materialized_views for the other two DDL kinds. Actual insert
+    column lists are read back from the live schema after DDL runs (see
+    get_live_columns), not from this parse, so an ALTERed table's new
+    columns are always included."""
     tables = {}
     for m in re.finditer(
         r"CREATE TABLE IF NOT EXISTS clickathon\.(\w+)\s*\((.*?)\)\s*ENGINE",
@@ -104,6 +123,40 @@ def parse_ddl_tables(ddl_text):
             columns.append((name, col_type))
         tables[table] = columns
     return tables
+
+
+def parse_ddl_altered_tables(ddl_text):
+    """Return the set of table names targeted by `ALTER TABLE
+    clickathon.<table> ADD COLUMN ...` in ddl_text -- tables this spec
+    extends rather than creates."""
+    comment_free = "\n".join(re.sub(r"--.*$", "", line) for line in ddl_text.splitlines())
+    return set(
+        re.findall(
+            r"ALTER TABLE clickathon\.(\w+)\s+ADD COLUMN",
+            comment_free,
+            re.I,
+        )
+    )
+
+
+def parse_ddl_materialized_views(ddl_text):
+    """Return [{'mv': name, 'target': table, 'source': table_or_None,
+    'select': select_sql}, ...] for every `CREATE MATERIALIZED VIEW ...
+    TO clickathon.<target> AS SELECT ... FROM clickathon.<source> ...` in
+    ddl_text. `source` is None if the SELECT's FROM can't be identified
+    (e.g. a join) -- callers should skip backfill rather than guess."""
+    comment_free = "\n".join(re.sub(r"--.*$", "", line) for line in ddl_text.splitlines())
+    views = []
+    for m in re.finditer(
+        r"CREATE MATERIALIZED VIEW(?:\s+IF NOT EXISTS)?\s+clickathon\.(\w+)\s+TO\s+clickathon\.(\w+)\s+AS\s+(SELECT.*?);",
+        comment_free,
+        re.S | re.I,
+    ):
+        mv_name, target, select_sql = m.group(1), m.group(2), m.group(3).strip()
+        src_m = re.search(r"FROM\s+clickathon\.(\w+)", select_sql, re.I)
+        source = src_m.group(1) if src_m else None
+        views.append({"mv": mv_name, "target": target, "source": source, "select": select_sql})
+    return views
 
 
 def split_ddl_statements(ddl_text):
@@ -255,6 +308,21 @@ def apply_uuid_shape_fix(columns, rows):
     return fixed
 
 
+def get_live_columns(client, table):
+    """Read a table's current column list/order/types straight from
+    ClickHouse (`system.columns`), post-DDL. Authoritative for both a table
+    CREATEd by this spec and one only ALTERed by it -- unlike parse_ddl_tables
+    (which only sees this spec's own CREATE TABLE bodies), this always
+    reflects the table's real, current shape."""
+    result = client.query(
+        "SELECT name, type FROM system.columns "
+        "WHERE database = 'clickathon' AND table = {table:String} "
+        "ORDER BY position",
+        parameters={"table": table},
+    )
+    return [(row[0], row[1]) for row in result.result_rows]
+
+
 def apply_known_issue_normalizer(client, expr, raw_values):
     """Batch-evaluate a known_issues.md `-- normalize:` expression via
     ClickHouse's own SQL engine (arrayMap) -- never reimplemented in Python,
@@ -330,6 +398,8 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
     known_issues_text = known_issues_path.read_text(encoding="utf-8")
 
     tables = parse_ddl_tables(ddl_text)
+    altered_tables = parse_ddl_altered_tables(ddl_text)
+    mv_defs = parse_ddl_materialized_views(ddl_text)
     real_ids = set(re.findall(r"^## ([DK]\d+)\b", known_issues_text, re.M))
     cited_ids = [i for i in parse_cited_ids(justification_text) if i in real_ids]
     fix_blocks = parse_known_issues(known_issues_text)
@@ -346,16 +416,45 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
         "tables": {},
         "cited_ids": cited_ids,
         "skipped_fixes": skipped_fixes,
+        "materialized_views": [],
     }
 
-    for table, columns in tables.items():
+    # MVs are incremental-only in ClickHouse (see query-mv-incremental.md) --
+    # they never backfill on their own. A source table this spec CREATEd has
+    # zero pre-existing rows (nothing to backfill: this run's own inserts,
+    # below, will be caught by the MV trigger since it already exists by
+    # now). A source table this spec did NOT create may already hold rows
+    # from an earlier spec's load, which the MV -- just created -- will
+    # never see unless backfilled explicitly, now, before this run adds more.
+    for mv in mv_defs:
+        source = mv["source"]
+        backfilled = bool(source) and source not in tables
+        table_report = {"mv": mv["mv"], "target": mv["target"], "source": source, "backfilled": backfilled}
+        if backfilled:
+            client.command(f"INSERT INTO clickathon.{mv['target']} {mv['select']}")
+        report["materialized_views"].append(table_report)
+
+    # Load every table with rows to insert, whether this spec's ddl.sql
+    # CREATEd it fresh or only ALTERed it -- an ALTER-only table has no
+    # CREATE TABLE body in this spec's ddl.sql (so isn't in `tables`), but
+    # its bucket of new rows still needs loading with the table's full,
+    # current (post-ALTER) column set.
+    table_order = list(tables.keys())
+    for t in sorted(altered_tables) + sorted(buckets.keys()):
+        if t not in table_order:
+            table_order.append(t)
+
+    for table in table_order:
         rows = buckets.get(table, [])
-        col_names = [c[0] for c in columns]
-        table_report = {"rows_loaded": 0, "normalized": [], "verified": []}
+        kind = "created" if table in tables else ("altered" if table in altered_tables else "existing")
+        table_report = {"kind": kind, "rows_loaded": 0, "normalized": [], "verified": []}
 
         if not rows:
             report["tables"][table] = table_report
             continue
+
+        columns = get_live_columns(client, table)
+        col_names = [c[0] for c in columns]
 
         rows = apply_uuid_shape_fix(columns, rows)
 
@@ -403,9 +502,28 @@ def render_report(spec_name: str, report: dict) -> str:
         lines.append(
             f"Cited but not loader-actionable (no fix block): {', '.join(report['skipped_fixes'])}"
         )
-    lines.append("")
+    if report["materialized_views"]:
+        lines.append("## Materialized views")
+        for mv in report["materialized_views"]:
+            if mv["backfilled"]:
+                lines.append(
+                    f"- `{mv['mv']}` -> `{mv['target']}`: backfilled from pre-existing "
+                    f"`{mv['source']}` rows (source table predates this spec)"
+                )
+            elif mv["source"]:
+                lines.append(
+                    f"- `{mv['mv']}` -> `{mv['target']}`: no backfill needed "
+                    f"(`{mv['source']}` created fresh by this spec, MV catches this run's inserts)"
+                )
+            else:
+                lines.append(
+                    f"- `{mv['mv']}` -> `{mv['target']}`: source table not identified from "
+                    f"SELECT (e.g. a join) -- backfill skipped, verify manually"
+                )
+        lines.append("")
+
     for table, t in report["tables"].items():
-        lines.append(f"## {table}")
+        lines.append(f"## {table} ({t['kind']})")
         lines.append(f"- rows loaded: {t['rows_loaded']}")
         for n in t["normalized"]:
             lines.append(f"- normalized `{n['column']}` per {n['issue']}")

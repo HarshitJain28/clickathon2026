@@ -4,7 +4,7 @@ kind: index
 status: verified
 confidence: high
 source: derived from frontmatter of metrics/*.md
-last_verified: 2026-08-01
+last_verified: 2026-08-02
 links: [doc.index, pattern.funnel_computation]
 ---
 
@@ -22,6 +22,7 @@ H1 2026 (2026-01-01 → 2026-07-01).
 | [passport_capture_pass_rate](passport_capture_pass_rate.md) | 88.76% | verified | **low** |
 | [conversion_rate](conversion_rate.md) (÷ sessions) | 0.71% | **refuted** | high |
 | [on_time_delivery_rate](on_time_delivery_rate.md) | — | **unverifiable** | low |
+| [express_conversion_lift](express_conversion_lift.md) | +35.2pp (83.02% vs 47.86%) | verified | medium |
 
 ## Three rules for reporting any of these
 

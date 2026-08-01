@@ -4,7 +4,7 @@ kind: changelog
 status: verified
 confidence: high
 source: git history of this wiki
-last_verified: 2026-08-01
+last_verified: 2026-08-02
 links: [doc.index, doc.known_issues]
 ---
 
@@ -12,6 +12,55 @@ links: [doc.index, doc.known_issues]
 
 Append-only, newest first. Every entry names the evidence behind the change.
 Git history is the authoritative diff; this is the readable summary.
+
+## 2026-08-02 — Spec 01 (Express Checkout) analysis consolidated
+
+Four `analysis/qNN.md` files from the Analysis Agent
+(`out/01_express_checkout/analysis/q01.md`–`q04.md`) folded into the wiki —
+the first live-query evidence for this spec's PM questions.
+
+- **q01** (Express vs standard conversion lift): Express checkout→success
+  converts **83.02%** (836/1,007, verified set membership) vs standard
+  **47.86%** (7,054/14,739) — **+35.2pp / 1.73×**. New page
+  `metrics/express_conversion_lift.md` (its selection-bias and small-n
+  caveats carried over verbatim); `tables/index.md` and
+  `tables/express_payment_confirmed.md` cross-linked.
+- **q02** (K1 re-test on the OTP step): `known_issues.md` K1 given a new,
+  dated, narrower verdict *alongside* — not replacing — its 2026-08-01
+  refutation. Express's `otp_entered.otp_success` shows OTP failures **100%
+  iOS-concentrated** (70/70 failures; iOS 83.64% success vs 100% on every
+  other platform); conditional on success, iOS's downstream confirmation
+  rate recovers to be in line with Android. Updated `known_issues.md` K1,
+  `tables/otp_entered.md`, `tables/express_payment_confirmed.md`,
+  `tables/pay_now_clicked.md`.
+- **q03** (Express payment latency): `express_payment_confirmed
+  .payment_latency_ms` mean 2,305.5ms / median 2,341.5ms (836 rows) — added
+  to `tables/express_payment_confirmed.md`. No standard-checkout baseline
+  exists; the nearest proxy (timestamp subtraction on
+  `pay_now_clicked`/`purchase_completed`) is invalid because D1's
+  non-monotonic-timestamp trap is **now confirmed to extend to
+  `pay_now_clicked → purchase_completed`** (only 52.55% of matched pairs
+  monotonic) — added as a dated addendum to `known_issues.md` D1.
+- **q04** (segment adoption): verified `express_checkout_shown →
+  express_checkout_selected` (61.03%) as an exact set-membership subset, not
+  a row-count ratio — geo shows the clearest skew (AU/SA/SG ~5–8pp above
+  AE), device and saved-method type essentially flat. Added to
+  `tables/express_checkout_shown.md`.
+
+Cross-cutting update: `tables/index.md`'s footnote now marks 2 of the 3
+Express Checkout step-through transitions as **verified** joins (was: all
+3 unverified row-count ratios) — `→ saved_method_used`/`→ otp_entered`
+(100%) remains unverified. `relationship.md`'s Application section notes all
+4 questions independently re-confirmed D2 (0% overlap) by working around it
+via `user_id` joins within Express Checkout's own tables — no question found
+a usable `application_id` path back to the main funnel. No new entities.
+
+**Not yet resolved:** the ~101-row unexplained gap between `otp_success=true`
+(937) and `express_payment_confirmed` (836) — corroborated by q01 and q02
+but still not explained by any column in this spec; flagged for a future
+analysis pass.
+
+Evidence: `out/01_express_checkout/analysis/q01.md`–`q04.md`.
 
 ## 2026-08-01 — Spec 01 (Express Checkout) instrumented
 

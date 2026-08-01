@@ -5,11 +5,14 @@ Answers one PM question at a time against the live ClickHouse Cloud database
 file (e.g. out/.../q01.md). Additionally writes a self-contained HTML report
 — with a visualization if warranted — but ONLY when the question itself asks
 for a report/visualization/chart/dashboard; a plain factual question gets a
-markdown-only answer. Where its finding genuinely updates something the
-context wiki (context/) already claims — a stale figure, a re-testable known
-issue, a metric worth documenting — it updates that page in place too,
-following context/SCHEMA.md's rules, since (unlike the Context Agent) it has
-live query evidence to back the edit.
+markdown-only answer.
+
+Read-only against context/ (question_extractor.py runs several of these
+concurrently, one per PM question, against the same spec -- concurrent Edits
+to the same wiki files from parallel processes is a corruption risk, not
+just a race). This agent orients from the wiki but never writes to it; its
+qNN.md answer is the deliverable, and it is itself the live-query evidence
+the Context Agent consolidates into context/ afterward, once, single-writer.
 
 Usage:
     python analysis_agent.py "<question>" [--out-dir DIR] [--index N]
@@ -42,6 +45,13 @@ from claude_agent_sdk import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent
+
+# Pinned so every run uses a known, consistently-priced model instead of
+# whatever the SDK/CLI's default happens to resolve to for the account
+# behind CLAUDE_CODE_OAUTH_TOKEN -- unpinned agent runs were a real
+# quota/cost driver (see log.md 2026-08-02).
+AGENT_MODEL = "claude-sonnet-5"
+
 CONTEXT_DIR = REPO_ROOT / "context"
 VENDORED_SKILLS_DIR = REPO_ROOT / ".skills"
 PROJECT_SKILLS_DIR = REPO_ROOT / ".claude" / "skills"
@@ -220,39 +230,16 @@ fully-answered question, not a stub or apology.
 
 {skills_section}
 
-## Update the wiki, if your finding warrants it
+## Do not edit the wiki
 
-You have something the Context Agent doesn't: a live query result. If what
-you found genuinely changes, confirms with fresh evidence, or adds to a
-claim the wiki already makes, update the relevant page(s) in
-`{context_dir}` in place — don't just leave the finding stranded in your
-answer file. Skip this section entirely if nothing you found bears on an
-existing page; don't force an edit to satisfy a checklist.
-
-Follow `{context_dir / 'SCHEMA.md'}` exactly — it is the authority, read it
-before editing anything if you haven't already:
-- Update in place; never create a new page for an existing table/metric,
-  never a `_v2` page.
-- A `known_issues.md` entry you just re-tested with a live query: this is
-  the one agent in this project actually allowed to change its `status` or
-  verdict text, because you have real evidence — cite your exact query and
-  result as the `source`. Never delete a refuted claim; add the new evidence
-  alongside it with today's date if it conflicts with what's there.
-- A metric you computed that matches an existing `metrics/*.md` page: update
-  its value/`last_verified` if your fresh number differs from what's
-  recorded, citing your query.
-- A metric you computed that has no existing page and is likely to be asked
-  again: consider adding a short new `metrics/*.md` page for it, plus an
-  entry in `metrics/index.md` — only if it's a genuinely reusable
-  definition, not a one-off cut specific to this single question.
-- A table-specific caveat you newly confirmed or disproved (e.g. a data
-  quality issue in a column): add a short note to that table's
-  `tables/<name>.md` page.
-- Whatever you touch: update its `status`, `confidence`, `last_verified`,
-  and regenerate the containing `index.md` as the last step, per SCHEMA.md.
-  Append one entry to `{context_dir / 'log.md'}` naming the question, what
-  you found, and the evidence.
-- Do not run `git commit` — leave wiki edits uncommitted for human review.
+You do not have write access to `{context_dir}` — you're one of several
+Analysis Agent runs that may be executing concurrently against the same
+spec, and concurrent edits to the same wiki files would corrupt them. Your
+qNN.md answer, cited with your exact query and result, IS the evidence the
+Context Agent needs — it runs once, after every question for this spec has
+finished, and consolidates every qNN.md into `known_issues.md`, table pages,
+metrics pages, and `log.md` itself. Write the best, most precisely-cited
+answer file you can; don't try to route findings anywhere else.
 
 ## Output
 
@@ -299,8 +286,7 @@ You are given two paths: a markdown path and an HTML path.
 
 Then give a short (under 100 words) plain-text summary as your final
 response: the headline finding (or why the question couldn't be answered),
-whether you also produced an HTML report and why (or why not), and which
-wiki page(s) (if any) you updated and why.
+and whether you also produced an HTML report and why (or why not).
 """
 
 
@@ -337,12 +323,13 @@ async def run_agent(
                 "url": CLICKHOUSE_MCP_URL,
             }
         },
-        allowed_tools=["Read", "Write", "Edit", "mcp__clickhouse-cloud__*"],
+        allowed_tools=["Read", "Write", "mcp__clickhouse-cloud__*"],
         permission_mode="bypassPermissions",
         system_prompt=build_system_prompt(skill_names, context_dir, service_id, database),
         skills=skill_names or None,
         setting_sources=["project"],
         max_turns=20,
+        model=AGENT_MODEL,
     )
 
     final_text_parts = []

@@ -5,11 +5,30 @@ profile.md) and updates the Atlys context wiki (context/) to reflect what was
 just instrumented — new/altered table pages, tables/index.md, relationship.md,
 known_issues.md, and log.md — following the rules in context/SCHEMA.md.
 
+Also the single consolidator of Analysis Agent findings: if <out_dir>/analysis
+contains qNN.md files (question_extractor.py runs several Analysis Agent
+instances concurrently, one per PM question, and none of them may write to
+context/ themselves — concurrent Edits to the same wiki files is a corruption
+risk), this agent reads all of them and folds their live-query findings
+(known-issue re-verdicts, table caveats, reusable metrics) into the wiki
+itself, exactly the way it already trusts load_report.md's verdicts — as
+real measurement evidence to cite, never re-derived or extrapolated beyond
+what the source file states.
+
+Run TWICE per spec (see orchestrator.py): once right after the Loader, before
+question_extractor.py runs, so the wiki carries this spec's schema/
+known-issue caveats for the Analysis Agent to orient from; once again after
+question_extractor.py finishes, to consolidate its qNN.md findings. Both
+calls are identical (this script doesn't need to know which pass it is —
+step 9 below is simply a no-op if <out_dir>/analysis doesn't exist yet).
+
 Usage:
     python context_agent.py <out_dir> [--context-dir DIR]
 
 <out_dir> must contain ddl.sql, justification.md, and profile.md (e.g. the
-Instrumentation Agent's output directory out/01_express_checkout).
+Instrumentation Agent's output directory out/01_express_checkout). An
+<out_dir>/analysis directory of qNN.md files is read if present, but not
+required.
 """
 
 import argparse
@@ -36,6 +55,13 @@ from claude_agent_sdk import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent
+
+# Pinned so every run uses a known, consistently-priced model instead of
+# whatever the SDK/CLI's default happens to resolve to for the account
+# behind CLAUDE_CODE_OAUTH_TOKEN -- unpinned agent runs were a real
+# quota/cost driver (see log.md 2026-08-02).
+AGENT_MODEL = "claude-sonnet-5"
+
 VENDORED_SKILLS_DIR = REPO_ROOT / ".skills"
 PROJECT_SKILLS_DIR = REPO_ROOT / ".claude" / "skills"
 CONTEXT_DIR = REPO_ROOT / "context"
@@ -102,20 +128,29 @@ No skills were discovered under `.skills/` at runtime."""
     return f"""You are the Context Agent for the Atlys agentic-analytics
 project — the third of its three agents (Instrumentation, Analytics, Context).
 You maintain `{context_dir}`, the living wiki that the other two agents read.
-Your job here: given one Instrumentation Agent run's output (a new or altered
-set of ClickHouse tables), update the wiki so it accurately reflects what was
-just instrumented.
+Your job here has two parts, both against the SAME output directory: (1)
+given the Instrumentation Agent's output (a new or altered set of ClickHouse
+tables), update the wiki so it accurately reflects what was just
+instrumented; (2) given the Analysis Agent's qNN.md answer files (if any
+exist yet for this spec — see step 8 below), consolidate their live-query
+findings into the wiki. You are the ONLY agent that writes to `{context_dir}`
+— the Analysis Agent is read-only there by design, precisely so this
+consolidation can happen safely in one single-writer pass instead of several
+concurrent ones.
 
 You have NO live database access yourself — no ClickHouse tool is available
 to you. Never claim to have verified or re-tested a live data claim on your
 own authority (a known_issues.md verdict, a row count you didn't get from
-profile.md/justification.md/load_report.md, etc).
+profile.md/justification.md/load_report.md/a qNN.md file, etc).
 
-The one exception: `load_report.md` (see step 7 below) IS live-DB evidence —
-it's the Loader's own record of a real run against ClickHouse, not something
-you produced. You may cite it as a measurement (`source: load_report.md —
-<query/verdict named there>`) and write `status: verified` from it. You may
-not extrapolate beyond what it actually states, and you still may not invent
+The exceptions: `load_report.md` (see step 7 below) and any `analysis/qNN.md`
+files (see step 8 below) ARE live-DB evidence — the Loader's own record of a
+real run, and the Analysis Agent's own record of a real query, respectively.
+Neither was produced by you. You may cite either as a measurement
+(`source: load_report.md — <query/verdict named there>` or `source:
+out/<spec>/analysis/qNN.md — <finding named there>`) and write
+`status: verified` from it. You may not extrapolate beyond what it actually
+states, and you still may not invent
 or re-derive a number it doesn't contain.
 
 ## Required reading, in this order — do this before writing anything
@@ -154,14 +189,22 @@ or re-derive a number it doesn't contain.
    `ADD COLUMN IF NOT EXISTS` for idempotency — use the bare `<table>` name
    (stripped of the `clickathon.` prefix) for page filenames and titles,
    matching the existing table pages' convention.
-8. Finally, `load_report.md` from the same output directory, if present (the
-   Loader may not have produced one, e.g. if it ran before this change
-   existed) — rows actually loaded per table, which known_issues.md
-   normalizations fired, and the result/verdict of any verification query it
-   ran. This is your only source of live-DB evidence (see "no live database
-   access" above). When a table's row count and a verified/refuted
-   known_issues.md verdict appear here, use them — don't leave a page saying
-   "manual check needed" when load_report.md already ran that check.
+8. `load_report.md` from the same output directory, if present (the Loader
+   may not have produced one, e.g. if it ran before this change existed) —
+   rows actually loaded per table, which known_issues.md normalizations
+   fired, and the result/verdict of any verification query it ran. When a
+   table's row count and a verified/refuted known_issues.md verdict appear
+   here, use them — don't leave a page saying "manual check needed" when
+   load_report.md already ran that check.
+9. Finally, every `analysis/qNN.md` file in the given output directory, if
+   the `analysis` subdirectory exists (question_extractor.py + the Analysis
+   Agent may not have run yet for this spec — that's fine, just skip this
+   step). Each is one PM question's Question/Answer pair, with its own query
+   and result already cited inline. Read all of them before writing anything,
+   the same way you'd read all of known_issues.md before editing it — a
+   finding in q03.md can bear on the same known_issues.md entry or table page
+   as q01.md, and you want the full, consistent picture before touching a
+   page twice.
 
 {skills_section}
 
@@ -208,10 +251,30 @@ or re-derive a number it doesn't contain.
   other figure `load_report.md` states, plus today's date), the same way D2
   already models "> 90% proceed / 1–90% state coverage / 0% stop". Never
   write a verdict you didn't get from `load_report.md` or an existing page.
+
+**Consolidating `analysis/qNN.md` findings (step 9 above), if that directory
+exists — this is now your job, not the Analysis Agent's:**
+- A `known_issues.md` entry a qNN.md file re-tested with a live query: update
+  its `status`/verdict text, citing that qNN.md file (and its query/result)
+  as the `source`, dated today. Never delete a refuted claim — add the new
+  evidence alongside it, the same "never delete, only add" rule you already
+  follow for `load_report.md`-sourced verdicts.
+- A metric a qNN.md file computed that matches an existing `metrics/*.md`
+  page: update its value/`last_verified`, citing the qNN.md file.
+- A metric with no existing page that's a genuinely reusable definition (not
+  a one-off cut specific to that single question): add a short new
+  `metrics/*.md` page plus an entry in `metrics/index.md`.
+- A table-specific caveat a qNN.md file newly confirmed or disproved: add a
+  short note to that table's `tables/<name>.md` page, citing the qNN.md file.
+- If two or more qNN.md files bear on the same known-issue or table (read
+  all of them first, per step 9), reconcile them into one coherent update
+  rather than writing conflicting or duplicate notes.
 - **Append exactly one new entry to `{context_dir / 'log.md'}`** — newest
   first, per its append-only convention — naming: which spec, which tables
-  were created/altered, the key risks carried forward, and the evidence
-  (`justification.md`/`ddl.sql` from this spec's output directory).
+  were created/altered, the key risks carried forward, which PM questions
+  were answered (if `analysis/qNN.md` files were present) and their headline
+  findings, and the evidence (`justification.md`/`ddl.sql`/`load_report.md`/
+  `analysis/qNN.md` from this spec's output directory).
 - **Regenerate every `index.md` you touched** as the last step, per SCHEMA.md.
 - Update `status`, `confidence`, and `last_verified` on every page you touch.
 - Enforce the frontmatter contract on every page you write or edit. Never
@@ -223,31 +286,48 @@ or re-derive a number it doesn't contain.
 
 ## What NOT to do
 
-- Do not modify `ddl.sql`, `justification.md`, or `profile.md` — they are
-  read-only inputs from the Instrumentation Agent.
+- Do not modify `ddl.sql`, `justification.md`, `profile.md`, or any
+  `analysis/qNN.md` file — they are all read-only inputs.
 - Do not run `git commit` — leave all changes uncommitted for human review.
 - Do not invent a data fact (row count, percentage, verdict) that isn't in
-  `justification.md`, `profile.md`, or the existing wiki.
+  `justification.md`, `profile.md`, `load_report.md`, an `analysis/qNN.md`
+  file, or the existing wiki.
 
 ## Output
 
 After making all edits, give a short (under 200 words) plain-text summary as
 your final response: which table pages you created vs. edited, whether
-`relationship.md` and/or `known_issues.md` needed changes, what you added to
-`log.md`, and any caveat you couldn't resolve (e.g. a known-issue re-test
-that still needs to be run manually since you have no DB access).
+`relationship.md` and/or `known_issues.md` needed changes, how many
+`analysis/qNN.md` files you consolidated (if any) and what each contributed,
+what you added to `log.md`, and any caveat you couldn't resolve (e.g. a
+known-issue re-test that still needs to be run since you have no DB access
+and no qNN.md file covers it yet).
 """
 
 
 def build_prompt(out_dir: Path, context_dir: Path) -> str:
     spec_name = out_dir.name
+    analysis_dir = out_dir / "analysis"
+    qna_files = sorted(analysis_dir.glob("q*.md")) if analysis_dir.is_dir() else []
+    if qna_files:
+        qna_note = (
+            f"- analysis/: {analysis_dir} — {len(qna_files)} question file(s) found, "
+            f"read every one: {', '.join(p.name for p in qna_files)}"
+        )
+    else:
+        qna_note = (
+            f"- analysis/: {analysis_dir} — does not exist yet (question_extractor.py "
+            "hasn't run for this spec, or has no output yet); skip step 9, nothing to consolidate"
+        )
     return f"""Update the Atlys context wiki to reflect the Instrumentation
-Agent's output for spec `{spec_name}`.
+Agent's output for spec `{spec_name}`, and consolidate any Analysis Agent
+findings for the same spec.
 
 - ddl.sql: {out_dir / 'ddl.sql'}
 - justification.md: {out_dir / 'justification.md'}
 - profile.md: {out_dir / 'profile.md'}
 - load_report.md: {out_dir / 'load_report.md'} (read if it exists — see system prompt)
+{qna_note}
 - context wiki root: {context_dir}
 
 Follow the required reading order and update rules from your system prompt.
@@ -267,6 +347,7 @@ async def run_agent(
         skills=skill_names or None,
         setting_sources=["project"],
         max_turns=60,
+        model=AGENT_MODEL,
     )
 
     final_text_parts = []

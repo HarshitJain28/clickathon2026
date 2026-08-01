@@ -3,8 +3,8 @@ id: doc.known_issues
 kind: known_issues
 status: verified
 confidence: high
-source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables
-last_verified: 2026-08-01
+source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension
+last_verified: 2026-08-02
 links: [doc.relationship, doc.business, metrics.index, tables.index]
 ---
 
@@ -62,6 +62,20 @@ SELECT countIf(t_later >= t_earlier) / count() AS monotonic_share FROM ...
 -- below ~0.99 → use set membership
 ```
 
+**2026-08-02 addendum (source: `out/01_express_checkout/analysis/q03.md`):**
+the non-monotonic-timestamp trap is **confirmed to extend beyond
+`document_uploaded → purchase_completed`** to `pay_now_clicked →
+purchase_completed` as well — only **52.55%** of the 7,054 matched
+`user_id` pairs have `purchase_completed.timestamp ≥
+pay_now_clicked.timestamp`. Even restricted to the "monotonic" 3,707 pairs,
+the naive average gap is ~76.9 minutes (median ~69 min) — not a payment-step
+latency at all, but the whole application-session gap (consistent with
+`relationship.md`'s 110.5-minute app-start-to-purchase figure). This means
+`pay_now_clicked`/`purchase_completed` timestamps cannot be used as a
+`shown → confirmed` payment-latency proxy for comparison against Express's
+own `payment_latency_ms` — see
+[express_payment_confirmed.md](tables/express_payment_confirmed.md).
+
 ## D2 — Spec `application_id` won't join ⛔ CRITICAL
 
 | Source | Example | Length |
@@ -110,6 +124,12 @@ is not merely a formatting mismatch for this spec: even correctly-normalized
 main funnel via `application_id` until re-tested with a fresh sample. See
 [relationship.md](relationship.md) and each table's page under
 [tables/](tables/index.md) for the same finding.
+
+**2026-08-02 — independently re-confirmed by 4 of the Analysis Agent's
+questions** (`out/01_express_checkout/analysis/q01.md`–`q04.md`), each of
+which stayed within Express Checkout's own tables (joined on `user_id`
+instead, safe per D6) rather than attempting the broken `application_id`
+join. No question found a working path around the 0% overlap.
 
 ## D3 — Capture-quality flag contradicts itself ⛔ CRITICAL
 
@@ -232,7 +252,7 @@ it to something the data says isn't happening.
 | ID | Claim | Verdict |
 |---|---|---|
 | **K2** | Android capture failures since Apr 2026 | ✅ **verified — understated** |
-| K1 | iOS WebKit OTP regression | ❌ refuted (inverted) — direct re-test now instrumentable (spec 01), not yet run |
+| K1 | iOS WebKit OTP regression | ❌ refuted on main funnel; ⚠️ **new, narrower OTP-step regression confirmed** (Express Checkout, iOS-only) — 2026-08-02 |
 | K3 | MRZ OCR weaker on non-Latin passports | ❌ refuted (by proxy) |
 | K4 | Schengen summer slot scarcity | ❌ refuted as Schengen-specific |
 | K6 | SUMMER20 Q2 campaign | ❌ refuted |
@@ -264,7 +284,7 @@ so the **trend is robust** (monotonic, Android-only, correctly timed) but the
 **absolute rate** inherits that doubt. Note `retry_count` stays flat at ~0.46
 throughout — itself corroborating D3.
 
-## K1 — iOS WebKit OTP regression ❌ REFUTED
+## K1 — iOS WebKit OTP regression ❌ REFUTED on main funnel; ⚠️ narrower OTP-step regression confirmed 2026-08-02 (see update below)
 
 > *"…users abandon at the pay step. Payment-heavy geos (Gulf card users) are most exposed."*
 
@@ -308,6 +328,39 @@ only ran the D2 overlap check for this spec, not a K1 query. Cutting
 analysis to run, and does not require the `application_id` join (D2 is broken
 for this spec — see above), only `otp_entered`'s own `os` column. Update this
 entry with a dated verdict once that query runs.
+
+**2026-08-02 update — re-test run, ✅ new dated verdict (source:
+`out/01_express_checkout/analysis/q02.md`).** Cutting `otp_entered.otp_success`
+by `device_type`/`os` on the Express Checkout sample (1,007 rows,
+2026-06-08→2026-06-28):
+
+| device_type | n | otp_success rate | confirmed | confirmation rate |
+|---|---:|---:|---:|---:|
+| **ios** | 428 | **83.64%** | 316 | 73.83% |
+| android | 338 | 100% | 303 | 89.64% |
+| web-user-b2c | 185 | 100% | 170 | 91.89% |
+| Desktop | 56 | 100% | 47 | 83.93% |
+
+**Every one of the 70 OTP failures in this sample occurred on `device_type =
+'ios'` / `os = 'iOS'`** — all three other platforms show 100% `otp_success`.
+By `geoip_country_code` the pattern is volume-weighted by where iOS traffic
+sits, not a distinct geo effect (no country shows the near-total concentration
+device/OS does) — device/OS is the driver. Conditional on `otp_success =
+true`, iOS's confirmation rate recovers to 88.27%, in line with Android
+(89.64%) — the gap lives almost entirely **at the OTP step itself**, not in a
+separate downstream iOS payment-confirmation problem.
+
+**This does not overturn K1's original refutation** — on the *main* funnel's
+`pay_now_clicked → purchase_completed` step (different table, different
+population, no OTP-specific columns), iOS still converts best (49.88% vs
+Android 46.77%, +27pp over Android in the UAE). Both verdicts stand side by
+side, per this wiki's never-delete-a-refuted-claim rule: the broad "users
+abandon at the pay step, Gulf-exposed" claim is refuted; a narrow, real,
+iOS-only OTP-step regression is newly confirmed in Express Checkout. Caveats:
+small standalone sample (1,007 rows, 3-week window); per D2 this cannot be
+joined to the main funnel, so this finding is scoped to Express Checkout only,
+not generalized platform-wide. See [otp_entered.md](tables/otp_entered.md) and
+[express_payment_confirmed.md](tables/express_payment_confirmed.md).
 
 ## K3 — MRZ OCR on non-Latin passports ❌ REFUTED (by proxy)
 
