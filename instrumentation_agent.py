@@ -21,6 +21,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows consoles often default stdout/stderr to a non-UTF-8 codepage
+# (e.g. cp1252), which can't encode characters like "→" that show up in the
+# agent's own generated text — force UTF-8 so printing never crashes on it.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 from dotenv import load_dotenv
 
 from claude_agent_sdk import (
@@ -144,25 +150,18 @@ low_cardinality hint) that justifies each choice.
    - **CREATE vs ALTER candidates**: read every existing table's column list
      so you can recognize when a spec's event is actually a new attribute of
      an existing event rather than a new event stream (see next section).
-4. `{CONTEXT_DIR / 'known_issues.md'}` — read ALL of D1-D9 and K1-K7, but
-   D2 and D8 are mandatory constraints on every table you design:
-   - **D2**: incoming spec `application_id` values are 32-char unhyphenated
-     hex; the live DB uses 36-char hyphenated UUID. If a table carries
-     `application_id`, its DDL (or the ingestion path you describe) MUST
-     normalize it to the hyphenated form, and your justification MUST
-     include the mandatory overlap-check query from D2, adapted to the new
-     table, as a pre-deployment step.
-   - **D8**: the 8 existing tables use `ORDER BY (id, timestamp, user_id)`
-     where `id` is a random UUID — this defeats the primary index. New
-     tables must NOT repeat this. Lead `ORDER BY` with real filter columns
-     (a low-cardinality categorical, then a date/timestamp, then higher
-     cardinality columns) — check your ClickHouse skill's primary-key rules
-     for the exact ordering guidance.
-5. `{CONTEXT_DIR / 'relationship.md'}` — entities, join map, key formats,
-   and specifically the "Entities the incoming specs will add" section:
-   check whether the new spec's entities (e.g. a group, a share) conflict
-   with or duplicate an existing column (e.g. `co_travelers`) before
-   creating a parallel model.
+4. `{CONTEXT_DIR / 'known_issues.md'}` — read this in full, every run. It
+   documents data traps and known-issue verdicts, and the context wiki is
+   expected to keep growing, so nothing about its current contents is
+   hardcoded here. Whatever it marks as a mandatory constraint (a required
+   normalization, a required pre-deployment check, a sort-key anti-pattern
+   to avoid, etc.) applies to every table you design — treat it as
+   non-negotiable and cite the specific entry by its own identifier in
+   justification.md.
+5. `{CONTEXT_DIR / 'relationship.md'}` — entities, join map, and key
+   formats. Check whether the new spec introduces an entity or column that
+   conflicts with or duplicates something already documented here before
+   creating a parallel model, and cite the specific section that applies.
 6. Whatever the "Skills available" section below points you to — for
    materialized views specifically, use it to decide whether an MV is
    warranted at all, not just how to write one if you build one. Most single
@@ -186,24 +185,35 @@ moment/grain?
   created by the client event SDK").
 - **Same moment, same grain as an existing table's event → `ALTER TABLE
   <existing_table> ADD COLUMN ...`.** Signals to look for: the spec's prose
-  describing the action as happening "alongside" / "as part of" an existing
-  step (e.g. paying for an add-on "alongside the visa" at the same purchase
-  moment); the existing table's context page explicitly calling out the
-  pattern (see step 2 above); or the new fields being a natural peer of
-  columns that table already has (e.g. an add-on amount next to
-  `insurance_amount`/`plan_selected` on `purchase_completed`). In that case:
+  describing the new fields as arriving at the same moment as an existing
+  step rather than as a separate occurrence of their own; the existing
+  table's context page explicitly calling out the pattern (see step 2
+  above); or the new fields being a natural peer of columns that table
+  already has, in the same spirit as its existing optional/add-on columns
+  — read that table's actual column list to judge this, don't assume from
+  a remembered example. In that case:
   - Emit `ALTER TABLE <name> ADD COLUMN ...` for each new attribute, using
-    the SAME nullability/typing convention as that table's other add-on
-    columns (e.g. `Nullable(UInt8)` flag + `Nullable(Float64)` amount,
-    mirroring `insurance_added`/`insurance_amount`) so the new columns don't
-    stick out as a foreign style in an otherwise-consistent table.
+    the SAME nullability/typing convention as that table's comparable
+    existing columns, so the new columns don't stick out as a foreign style
+    in an otherwise-consistent table.
   - Do NOT also create a redundant new table for the same rows.
   - Any *other* events from the same spec that are NOT at that shared grain
-    (e.g. an earlier funnel/engagement step like an offer being shown or an
-    amount being typed) still get their own `CREATE TABLE` — don't force an
-    entire spec into one bucket.
+    still get their own `CREATE TABLE` — don't force an entire spec into one
+    bucket just because one of its events qualified for an ALTER.
   Justify this call explicitly — which existing table, why this event
   shares its grain, and which context-wiki sentence (if any) supports it.
+
+## Column policy — observed fields only
+
+A table's columns are exactly the fields observed in `profile.md` for that
+event. If `profile.md` does not show a field (e.g. `latitude`, `locale`,
+`geoip_subdivision_1_code`, etc.) for that event, do not add it "for
+consistency with the 8 existing tables" — an unobserved column is an
+invented column, which is already forbidden. If the client SDK is expected
+to emit more envelope fields later, that goes in `justification.md` as a
+note, not as DDL. Only exception: a column required by an explicit
+instruction in the context wiki or `known_issues.md`, citing the exact
+sentence.
 
 ## String-type decision — do not default to LowCardinality
 
@@ -218,11 +228,15 @@ For every string/categorical column, decide among `String`, `FixedString(N)`,
    codes, fixed-length hashes) → `FixedString(N)`. Verify this against
    whatever your ClickHouse skill says about FixedString vs LowCardinality
    trade-offs rather than assuming — cite what it actually says.
-   - Watch for catch-all buckets that break the fixed width — e.g. the
-     existing envelope's `geoip_country_code` includes an `OTHER` value
-     (5 chars) alongside 2-char codes, which disqualifies it from
-     `FixedString(2)` even though every real code is 2 chars. Always check
-     the full observed value list, not just the first few.
+   - Watch for catch-all buckets that break the fixed width — a column can
+     look uniformly fixed-length in one event's sample while the context
+     wiki documents a longer exception value used for that same column
+     elsewhere in the platform (an `OTHER`/`unknown`-style bucket, for
+     example). Check both the full observed value list AND whatever the
+     wiki says about that column's complete value domain before committing
+     to `FixedString` — don't decide from the first few sampled values, and
+     don't assume a column is safe just because this one profile didn't
+     happen to show the exception.
 2. If cardinality is low (per the profiler's ratio-gated hint) but values
    are genuinely variable-length (city names, free-form-ish categoricals) →
    `LowCardinality(String)`.
@@ -242,6 +256,16 @@ For every string/categorical column, decide among `String`, `FixedString(N)`,
    Recall the profiler's `low_cardinality` hint only fires when a string
    field's distinct values are BOTH under 1000 absolute AND under 10% of its
    present-row count — trust that ratio, not the absolute distinct count.
+5. Join keys must match the type of the column they join to. If a column
+   joins against an existing table's column (`user_id`, `application_id`,
+   anything in `relationship.md`'s join map), use the existing column's
+   exact type — plain `String` for `user_id`, `Nullable(String)` for
+   `application_id` — even where `FixedString(N)` looks tempting, because
+   `FixedString` null-pads short values and a `FixedString`-vs-`String`
+   join can silently mismatch on messy production data. `FixedString` is
+   only permissible for keys that exist solely within this spec's new
+   tables (e.g. a new `share_id` joining new table to new table), with
+   justification.
 
 State this reasoning per column in justification.md — which of the 4 options
 you picked and the specific observed values or stat that ruled the others
@@ -263,8 +287,12 @@ Write exactly two files into the given output directory:
 1. `ddl.sql` — every `CREATE TABLE`, `ALTER TABLE ... ADD COLUMN`, and (if
    warranted) `CREATE MATERIALIZED VIEW` statement, valid ClickHouse SQL,
    nothing else in the file (SQL comments are fine for brief inline notes).
-   Group ALTER statements together with a comment naming which spec event(s)
-   they came from.
+   The file must be executable as-is against the live service: every
+   statement database-qualified as `clickathon.<table>`; `CREATE TABLE IF
+   NOT EXISTS` so re-runs are idempotent; `ALTER TABLE clickathon.<table>
+   ADD COLUMN IF NOT EXISTS`; `ENGINE = MergeTree` (ClickHouse Cloud
+   converts it to `SharedMergeTree` automatically). Group ALTER statements
+   together with a comment naming which spec event(s) they came from.
 2. `justification.md`, structured as:
    - **An overview table first**, one row per object you produced (table
      created, table altered, or MV), columns: `Object | Kind (CREATE TABLE /
@@ -285,10 +313,12 @@ Write exactly two files into the given output directory:
      - **Materialized view decision**: built or not, and why — cite the
        specific skill rule that applies if one is proposed; if none is
        proposed, say so explicitly and why (don't just omit it).
-     - **Risks / caveats to carry forward**: anything from known_issues.md
-       that applies (D2 overlap-check query if `application_id` is present,
-       D9 casing/vocabulary collisions if this spec's fields collide with an
-       existing column, entity conflicts from relationship.md, etc).
+     - **Risks / caveats to carry forward**: every constraint from
+       known_issues.md that applies to this spec's tables, cited by its own
+       identifier, plus any entity or column conflicts surfaced by
+       relationship.md. Don't rely on a remembered list of which issues
+       exist — read both documents fresh for this spec and report what
+       actually applies.
 
 Then give a short (under 200 words) plain-text summary as your final
 response: which tables you created vs altered, whether an MV was included,
@@ -344,6 +374,7 @@ async def run_agent(
         permission_mode="bypassPermissions",
         system_prompt=build_system_prompt(skill_names),
         skills=skill_names or None,
+        setting_sources=["project"],
         max_turns=60,
     )
 
