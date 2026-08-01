@@ -1,11 +1,12 @@
 """Orchestrator.
 
-Chains three steps: given a feature spec directory, run the Instrumentation
+Chains five steps: given a feature spec directory, run the Instrumentation
 Agent to produce ddl.sql/justification.md/profile.md into an output
 directory, run the Loader to create the tables in ClickHouse and load
-events.ndjson into them, then run the Context Agent on that same output
-directory to update the wiki. Does nothing else — no logic of its own beyond
-passing paths along.
+events.ndjson into them, run the Context Agent on that same output directory
+to update the wiki, then run the Question Extractor (which itself calls the
+Analysis Agent once per PM question found in spec.md). Does nothing else —
+no logic of its own beyond passing paths along.
 
 Usage:
     python orchestrator.py <spec_dir> [--out-dir DIR] [--context-dir DIR]
@@ -13,7 +14,9 @@ Usage:
 <spec_dir> must contain spec.md and events.ndjson (e.g.
 ps/Atlys/specs/01_express_checkout). --out-dir defaults to
 out/<spec_dir name> (e.g. out/01_express_checkout), matching this repo's
-existing out/ layout.
+existing out/ layout. The Question Extractor/Analysis Agent step writes into
+<out-dir>/analysis, one qNN.md (plus qNN_report.html when warranted) per PM
+question.
 
 The Loader step is generic across specs: it derives table/column names from
 ddl.sql and any required normalization/verification from justification.md's
@@ -32,11 +35,13 @@ REPO_ROOT = Path(__file__).resolve().parent
 INSTRUMENTATION_AGENT = REPO_ROOT / "instrumentation_agent.py"
 LOADER = REPO_ROOT / "loader.py"
 CONTEXT_AGENT = REPO_ROOT / "context_agent.py"
+QUESTION_EXTRACTOR = REPO_ROOT / "question_extractor.py"
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Orchestrator: Instrumentation Agent -> Context Agent"
+        description="Orchestrator: Instrumentation Agent -> Loader -> "
+        "Context Agent -> Question Extractor -> Analysis Agent"
     )
     parser.add_argument(
         "spec_dir", type=Path, help="folder containing spec.md and events.ndjson"
@@ -92,6 +97,20 @@ def main():
     result = subprocess.run(context_cmd)
     if result.returncode != 0:
         print("error: context_agent.py failed", file=sys.stderr)
+        return result.returncode
+
+    question_extractor_cmd = [
+        sys.executable,
+        str(QUESTION_EXTRACTOR),
+        str(spec_dir),
+        "--out-dir",
+        str(out_dir / "analysis"),
+    ]
+    if args.context_dir:
+        question_extractor_cmd += ["--context-dir", str(args.context_dir)]
+    result = subprocess.run(question_extractor_cmd)
+    if result.returncode != 0:
+        print("error: question_extractor.py failed", file=sys.stderr)
         return result.returncode
 
     return 0
