@@ -118,35 +118,53 @@ you produced. You may cite it as a measurement (`source: load_report.md —
 not extrapolate beyond what it actually states, and you still may not invent
 or re-derive a number it doesn't contain.
 
-## Required reading, in this order — do this before writing anything
+## Orient via index files first — do not full-read the wiki
 
-1. `{context_dir / 'SCHEMA.md'}` — the rules you must follow: frontmatter
-   contract (the required-fields list is defined there — read it, don't
-   assume it), create-vs-update policy (create only for a genuinely
-   new table; everything else updates in place; never create `_v2` pages —
-   git holds history), the "Update triggers" table, the "Update workflow", and
-   the lint checklist. Follow this file's rules exactly, don't paraphrase from
-   memory.
-2. `{context_dir / 'index.md'}` — orientation and the ground rule that the
-   live DB wins over `base_context.md` on data facts (moot for you today since
-   you have no DB access, but don't contradict it either).
-3. `{tables_dir / 'index.md'}` — the shared 30-column envelope and the 8
-   existing tables' physical layout. New table pages you write should NOT
-   restate envelope columns already documented here — only cover each table's
-   own event-specific columns, exactly like the existing table pages do (e.g.
-   `purchase_completed.md` only lists its own `value`/`currency`/`coupon_*`
-   etc., not `id`/`timestamp`/`user_id`/etc.).
-4. `{context_dir / 'relationship.md'}` — entities, join map, key formats, and
-   specifically the "Entities the incoming specs will add" section. Read it
-   fresh every run rather than from memory — it's expected to keep growing.
-   If this spec's entities are named there, update that section to reflect
-   the entity is now instrumented, carrying forward whatever reconciliation
-   note is already flagged, cited by its own section/heading.
-5. `{context_dir / 'known_issues.md'}` — read all entries. Recognize when
-   this spec's new instrumentation is the thing an open issue's own entry
-   says would make it re-testable.
-6. Top of `{context_dir / 'log.md'}` — recent entries, so your new entry
-   matches the established changelog style.
+The wiki keeps growing every time a spec runs (more table pages, a longer
+`known_issues.md`, a longer `log.md`), so unconditionally reading every file
+in full, every run, gets slower and more expensive over time for no benefit.
+Traverse it the way `{context_dir / 'SCHEMA.md'}` itself prescribes: read
+`index.md`, then only the directory index you need, then open only the
+specific pages relevant to *this spec* — never scan the whole wiki.
+
+1. `{context_dir / 'SCHEMA.md'}` — always read in full first. It's short by
+   design and is the rules you must follow: frontmatter contract (the
+   required-fields list is defined there — read it, don't assume it),
+   create-vs-update policy (create only for a genuinely new table;
+   everything else updates in place; never create `_v2` pages — git holds
+   history), the "Update triggers" table, the "Update workflow", and the
+   lint checklist.
+2. `{context_dir / 'index.md'}` — always read in full next. Short by design:
+   verified environment, directory map, one-sentence pointers to everything
+   else, and the ground rule that the live DB wins over `base_context.md` on
+   data facts (moot for you today since you have no DB access, but don't
+   contradict it either).
+3. `{tables_dir / 'index.md'}` — always read in full (it's the shared
+   30-column envelope + a compact table list, not the individual pages).
+   From `ddl.sql`, you already know which tables this spec creates or
+   alters — open only the **specific existing** `{tables_dir}/<name>.md`
+   page(s) for any table being `ALTER`'d (you need its current column table
+   and cross-reference style to edit it correctly). Do not open every
+   existing table's page "for context" — only the ones this spec's `ddl.sql`
+   actually touches. New table pages you write should not restate envelope
+   columns already documented in `tables/index.md`.
+4. `{context_dir / 'relationship.md'}` — skim its section headings first
+   (short, index-like: one heading per entity). Read the "Entities the
+   incoming specs will add" section in full only if it plausibly names an
+   entity this spec introduces (check against `spec`/`ddl.sql`/
+   `justification.md`'s own entity/column names) — if this spec introduces no
+   new entity, you don't need to open this file's body at all beyond that
+   section heading check.
+5. `{context_dir / 'known_issues.md'}` — skim its structure first (the D-trap
+   headings and the K-issue verdict table read like an index on their own),
+   then read in full only the specific entries `justification.md` itself
+   already cites by identifier, plus any entry whose subject obviously
+   overlaps this spec's tables/columns. Do not read every entry every run —
+   the file only gets longer over time and most entries won't apply to any
+   given spec.
+6. Top of `{context_dir / 'log.md'}` — the most recent 1-2 entries only, for
+   changelog style/format. Never read the whole file; it's append-only and
+   only grows.
 7. Then, from the given output directory: `ddl.sql`, `justification.md`, and
    `profile.md` — the actual DDL, the reasoning behind it, and the profiler
    statistics it was built on. Note `ddl.sql` now qualifies every statement
@@ -162,6 +180,16 @@ or re-derive a number it doesn't contain.
    access" above). When a table's row count and a verified/refuted
    known_issues.md verdict appear here, use them — don't leave a page saying
    "manual check needed" when load_report.md already ran that check.
+
+If, while writing, you discover you actually need something you skipped
+(e.g. an entry in `known_issues.md` you didn't originally read, or another
+table's page), go back and read it then — traversing via indexes means
+reading less by default, not guessing when something turns out to matter.
+
+`Glob`/`Grep` are available for targeted lookups only — e.g. confirming an
+`id:` isn't already used elsewhere before creating a page, or finding which
+page links to something you're renaming. Don't use them to scan or dump the
+whole wiki "for context"; that defeats the point of reading via indexes.
 
 {skills_section}
 
