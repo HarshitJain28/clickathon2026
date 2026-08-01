@@ -18,6 +18,12 @@ import os
 import sys
 from pathlib import Path
 
+# Windows consoles often default stdout/stderr to a non-UTF-8 codepage
+# (e.g. cp1252), which can't encode characters like "→" that show up in the
+# agent's own generated text — force UTF-8 so printing never crashes on it.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 from dotenv import load_dotenv
 
 from claude_agent_sdk import (
@@ -102,16 +108,16 @@ just instrumented.
 
 You have NO live database access — no ClickHouse tool is available to you.
 Never claim to have verified or re-tested a live data claim (a known_issues.md
-K-issue verdict, a row count you didn't get from profile.md/justification.md,
-etc). You may only note that a spec makes something newly *testable* — the
-wiki already does this (see known_issues.md K5's note about spec 04) — never
-claim you ran the test yourself.
+verdict, a row count you didn't get from profile.md/justification.md, etc).
+You may only note that a spec makes something newly *testable* — the wiki's
+known-issues entries model this pattern — never claim you ran the test
+yourself.
 
 ## Required reading, in this order — do this before writing anything
 
 1. `{context_dir / 'SCHEMA.md'}` — the rules you must follow: frontmatter
-   contract (7 required fields: id, kind, status, confidence, source,
-   last_verified, links), create-vs-update policy (create only for a genuinely
+   contract (the required-fields list is defined there — read it, don't
+   assume it), create-vs-update policy (create only for a genuinely
    new table; everything else updates in place; never create `_v2` pages —
    git holds history), the "Update triggers" table, the "Update workflow", and
    the lint checklist. Follow this file's rules exactly, don't paraphrase from
@@ -125,20 +131,24 @@ claim you ran the test yourself.
    own event-specific columns, exactly like the existing table pages do (e.g.
    `purchase_completed.md` only lists its own `value`/`currency`/`coupon_*`
    etc., not `id`/`timestamp`/`user_id`/etc.).
-4. `{context_dir / 'relationship.md'}` — specifically the "Entities the
-   incoming specs will add" section. If this spec's entities are named there
-   (e.g. spec 02's `group_id` vs `co_travelers`, spec 03's `share_id`), update
-   that section to reflect the entity is now instrumented, carrying forward
-   any reconciliation note already flagged.
-5. `{context_dir / 'known_issues.md'}` — D1–D9 and K1–K7. Recognize when this
-   spec's new instrumentation is the thing a K-issue's own entry says to
-   re-test (e.g. K5 ⟷ spec 04's `channel`/`resumed_at_step`). Only note that
-   the re-test is now possible — do not write a new verdict.
+4. `{context_dir / 'relationship.md'}` — entities, join map, key formats, and
+   specifically the "Entities the incoming specs will add" section. Read it
+   fresh every run rather than from memory — it's expected to keep growing.
+   If this spec's entities are named there, update that section to reflect
+   the entity is now instrumented, carrying forward whatever reconciliation
+   note is already flagged, cited by its own section/heading.
+5. `{context_dir / 'known_issues.md'}` — read all entries. Recognize when
+   this spec's new instrumentation is the thing an open issue's own entry
+   says would make it re-testable.
 6. Top of `{context_dir / 'log.md'}` — recent entries, so your new entry
    matches the established changelog style.
 7. Then, from the given output directory: `ddl.sql`, `justification.md`, and
    `profile.md` — the actual DDL, the reasoning behind it, and the profiler
-   statistics it was built on.
+   statistics it was built on. Note `ddl.sql` now qualifies every statement
+   as `clickathon.<table>` and uses `CREATE TABLE IF NOT EXISTS` /
+   `ADD COLUMN IF NOT EXISTS` for idempotency — use the bare `<table>` name
+   (stripped of the `clickathon.` prefix) for page filenames and titles,
+   matching the existing table pages' convention.
 
 {skills_section}
 
@@ -156,23 +166,28 @@ claim you ran the test yourself.
   - Only this table's own event-specific columns (not the shared envelope —
     link to `tables/index.md` for that), matching the style of the 8 existing
     table pages.
-  - Any `ORDER BY` / `PARTITION BY` deviation from the D8-compliant new-table
-    convention, and the specific risks/caveats justification.md flagged for
-    this table.
+  - Any `ORDER BY` / `PARTITION BY` deviation from the existing tables'
+    baseline layout that justification.md explains (e.g. a known_issues.md
+    entry instructing new tables not to repeat an old sort-key anti-pattern),
+    and the specific risks/caveats justification.md flagged for this table —
+    cited by whichever known_issues.md identifier justification.md itself
+    used, not one you assume.
 - **Per `ALTER TABLE ... ADD COLUMN` statement in `ddl.sql`** → edit the
   existing table's page in place (do NOT create a new page): add the new
-  columns to its column table, with a short cross-reference note on why (e.g.
-  "third add-on, alongside insurance/plan tiers, added by spec 05" — matching
-  how `purchase_completed.md` already cross-references spec 05 today).
+  columns to its column table, with a short cross-reference note on why (one
+  line naming the source spec and how the columns relate to the table's
+  existing ones — match the cross-reference style already used on that
+  table's page).
 - **Update `{tables_dir}/index.md`** — add a row per new table (role, rows,
   users, step-through if derivable) and update the "Total" rows figure.
   Regenerate this index from its siblings' frontmatter as SCHEMA.md instructs.
 - **Update `{context_dir / 'relationship.md'}`** only if this spec's entities
   were named in "Entities the incoming specs will add" (see step 4 above).
 - **Update `{context_dir / 'known_issues.md'}`** only for structural notes:
-  new data-trap-shaped risks the new tables carry (e.g. "this table also
-  needs the D2 overlap check before joining"), or noting a K-issue is now
-  re-testable. Never write a verdict you didn't verify.
+  a new table inheriting a risk an existing entry already describes (cite
+  that entry's own identifier — don't invent a new one), or noting that an
+  existing entry is now re-testable because of this spec's new columns.
+  Never write a verdict you didn't verify.
 - **Append exactly one new entry to `{context_dir / 'log.md'}`** — newest
   first, per its append-only convention — naming: which spec, which tables
   were created/altered, the key risks carried forward, and the evidence
@@ -199,8 +214,8 @@ claim you ran the test yourself.
 After making all edits, give a short (under 200 words) plain-text summary as
 your final response: which table pages you created vs. edited, whether
 `relationship.md` and/or `known_issues.md` needed changes, what you added to
-`log.md`, and any caveat you couldn't resolve (e.g. a K-issue re-test that
-still needs to be run manually since you have no DB access).
+`log.md`, and any caveat you couldn't resolve (e.g. a known-issue re-test
+that still needs to be run manually since you have no DB access).
 """
 
 
@@ -229,6 +244,7 @@ async def run_agent(
         permission_mode="bypassPermissions",
         system_prompt=build_system_prompt(skill_names, context_dir),
         skills=skill_names or None,
+        setting_sources=["project"],
         max_turns=60,
     )
 
