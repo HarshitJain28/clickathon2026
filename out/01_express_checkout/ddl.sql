@@ -1,136 +1,129 @@
--- Spec 01: Express Checkout
--- All 5 events are new occurrences at their own grain (own moment, own row) —
--- none of them share the grain of an existing table's event, so this spec is
--- CREATE TABLE only. No ALTER statements. See justification.md for the
--- per-event CREATE-vs-ALTER reasoning.
+-- Spec 01 — Express Checkout
+-- All 5 events are new occurrences at their own grain (own row, own moment in
+-- the express-checkout flow), none sharing a moment/grain with an existing
+-- table's event (see justification.md "CREATE vs ALTER call" per event).
+-- => 5x CREATE TABLE, 0x ALTER TABLE.
 --
--- ⚠ MANDATORY pre-deployment step (known_issues.md D2): application_id in this
--- spec's raw events arrives as 32-char unhyphenated hex (confirmed in
--- profile.md's express_payment_confirmed sample), not the 36-char hyphenated
--- UUID the DB uses. The ingest pipeline MUST normalize to hyphenated form
--- before insert, e.g.:
---   concat(substring(raw_id,1,8),'-',substring(raw_id,9,4),'-',substring(raw_id,13,4),
---          '-',substring(raw_id,17,4),'-',substring(raw_id,21,12)) AS application_id
--- and the overlap_pct check against clickathon.application_started MUST be run
--- and documented before these tables are declared ready for join-based analysis.
+-- Physical layout deliberately deviates from the 8 existing tables per
+-- known_issues.md D8: new tables must NOT lead ORDER BY with the random `id`
+-- UUID, and must use LowCardinality(String) for tiny categoricals.
+--
+-- application_id is typed Nullable(String) to match application_started's
+-- join-key type (see relationship.md "Application" + known_issues.md D2).
+-- D2 is CRITICAL: the raw spec NDJSON carries application_id as a 32-char
+-- unhyphenated hex string (confirmed in profile.md's express_payment_confirmed
+-- sample), which will NOT join application_started's 36-char hyphenated UUID
+-- as-is. The ingest pipeline MUST normalize (insert dashes at 8-4-4-4-12) on
+-- write into every table below, and the D2 overlap-check query MUST be run
+-- against application_started before these tables are declared join-ready.
 
--- ============================================================
--- express_checkout_shown — express eligible, button rendered
--- ============================================================
 CREATE TABLE IF NOT EXISTS clickathon.express_checkout_shown
 (
-    id                  UUID,
-    timestamp           DateTime,
-    user_id             String,                        -- join key: exact envelope type (String, not nullable)
-    application_id      Nullable(String),               -- join key: exact envelope type; normalize per D2 before insert
-    app_version         LowCardinality(String),
-    city                LowCardinality(String),
-    client_lib          LowCardinality(String),
-    destination         FixedString(2),                 -- ISO-2 code, uniform length, no OTHER-style exception documented for this column
-    device_type         LowCardinality(String),
-    geoip_country_code  LowCardinality(String),          -- String, not FixedString: envelope documents an "OTHER" (5-char) exception value
-    os                  LowCardinality(Nullable(String)),-- genuinely null ~6.8% here, consistent with envelope's stated 5.95% NULL
-    currency            FixedString(3),                  -- ISO-4217 code, uniform 3-char length, no OTHER-style exception documented
-    eligible             Bool,
-    shown_amount        Float64
+    id                UUID,
+    timestamp         DateTime,
+    user_id           String,
+    application_id    Nullable(String),
+    device_type       LowCardinality(String),
+    os                LowCardinality(Nullable(String)),
+    app_version       LowCardinality(String),
+    client_lib        LowCardinality(String),
+    geoip_country_code LowCardinality(String),
+    city              LowCardinality(String),
+    destination       LowCardinality(String),
+    shown_amount      Float64,
+    currency          LowCardinality(String),
+    eligible          Bool
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (device_type, toDate(timestamp), user_id, id)
+ORDER BY (toDate(timestamp), device_type, user_id, id)
 SETTINGS index_granularity = 8192;
 
--- ============================================================
--- express_checkout_selected — user taps Express
--- ============================================================
 CREATE TABLE IF NOT EXISTS clickathon.express_checkout_selected
 (
-    id                  UUID,
-    timestamp           DateTime,
-    user_id             String,
-    application_id      Nullable(String),
-    app_version         LowCardinality(String),
-    city                LowCardinality(String),
-    client_lib          LowCardinality(String),
-    destination         FixedString(2),
-    device_type         LowCardinality(String),
-    geoip_country_code  LowCardinality(String),
-    os                  LowCardinality(Nullable(String)),
-    saved_method_type   LowCardinality(String)           -- card/upi/wallet today; set may grow (cf. pay_now_clicked.payment_method has 5 values) — not Enum
+    id                UUID,
+    timestamp         DateTime,
+    user_id           String,
+    application_id    Nullable(String),
+    device_type       LowCardinality(String),
+    os                LowCardinality(Nullable(String)),
+    app_version       LowCardinality(String),
+    client_lib        LowCardinality(String),
+    geoip_country_code LowCardinality(String),
+    city              LowCardinality(String),
+    destination       LowCardinality(String),
+    saved_method_type LowCardinality(String)
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (device_type, toDate(timestamp), user_id, id)
+ORDER BY (toDate(timestamp), device_type, user_id, id)
 SETTINGS index_granularity = 8192;
 
--- ============================================================
--- saved_method_used — the saved instrument is loaded
--- No event-specific payload observed beyond the envelope subset.
--- ============================================================
 CREATE TABLE IF NOT EXISTS clickathon.saved_method_used
 (
-    id                  UUID,
-    timestamp           DateTime,
-    user_id             String,
-    application_id      Nullable(String),
-    app_version         LowCardinality(String),
-    city                LowCardinality(String),
-    client_lib          LowCardinality(String),
-    destination         FixedString(2),
-    device_type         LowCardinality(String),
-    geoip_country_code  LowCardinality(String),
-    os                  LowCardinality(Nullable(String))
+    id                UUID,
+    timestamp         DateTime,
+    user_id           String,
+    application_id    Nullable(String),
+    device_type       LowCardinality(String),
+    os                LowCardinality(Nullable(String)),
+    app_version       LowCardinality(String),
+    client_lib        LowCardinality(String),
+    geoip_country_code LowCardinality(String),
+    city              LowCardinality(String),
+    destination       LowCardinality(String)
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (device_type, toDate(timestamp), user_id, id)
+ORDER BY (toDate(timestamp), device_type, user_id, id)
 SETTINGS index_granularity = 8192;
 
--- ============================================================
--- otp_entered — OTP submitted
--- ============================================================
 CREATE TABLE IF NOT EXISTS clickathon.otp_entered
 (
-    id                  UUID,
-    timestamp           DateTime,
-    user_id             String,
-    application_id      Nullable(String),
-    app_version         LowCardinality(String),
-    city                LowCardinality(String),
-    client_lib          LowCardinality(String),
-    destination         FixedString(2),
-    device_type         LowCardinality(String),
-    geoip_country_code  LowCardinality(String),
-    os                  LowCardinality(Nullable(String)),
-    otp_attempts        UInt8,                            -- observed range [1,3]
-    otp_success         Bool
+    id                UUID,
+    timestamp         DateTime,
+    user_id           String,
+    application_id    Nullable(String),
+    device_type       LowCardinality(String),
+    os                LowCardinality(Nullable(String)),
+    app_version       LowCardinality(String),
+    client_lib        LowCardinality(String),
+    geoip_country_code LowCardinality(String),
+    city              LowCardinality(String),
+    destination       LowCardinality(String),
+    otp_attempts      UInt8,
+    otp_success       Bool
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (device_type, toDate(timestamp), user_id, id)
+ORDER BY (toDate(timestamp), device_type, user_id, id)
 SETTINGS index_granularity = 8192;
 
--- ============================================================
--- express_payment_confirmed — payment succeeds
--- Nested `payment` object flattened to payment_* columns.
--- ============================================================
 CREATE TABLE IF NOT EXISTS clickathon.express_payment_confirmed
 (
-    id                  UUID,
-    timestamp           DateTime,
-    user_id             String,
-    application_id      Nullable(String),
-    app_version         LowCardinality(String),
-    city                LowCardinality(String),
-    client_lib          LowCardinality(String),
-    destination         FixedString(2),
-    device_type         LowCardinality(String),
-    geoip_country_code  LowCardinality(String),
-    os                  LowCardinality(Nullable(String)),
-    payment_amount      Float64,                          -- observed range [1509.0, 8997.0]
-    payment_currency    FixedString(3),
-    payment_latency_ms  UInt16                             -- observed range [607, 3999]
+    id                UUID,
+    timestamp         DateTime,
+    user_id           String,
+    application_id    Nullable(String),
+    device_type       LowCardinality(String),
+    os                LowCardinality(Nullable(String)),
+    app_version       LowCardinality(String),
+    client_lib        LowCardinality(String),
+    geoip_country_code LowCardinality(String),
+    city              LowCardinality(String),
+    destination       LowCardinality(String),
+    payment_amount    Float64,
+    payment_currency  LowCardinality(String),
+    payment_latency_ms UInt16
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (device_type, toDate(timestamp), user_id, id)
+ORDER BY (toDate(timestamp), device_type, user_id, id)
 SETTINGS index_granularity = 8192;
+
+-- No ALTER TABLE statements: no event in this spec shares a moment/grain with
+-- an existing table's event (see justification.md).
+
+-- No MATERIALIZED VIEW: every source table here is O(1e3) rows in the profiled
+-- sample (836-1650) — full scans are already cheap; see justification.md
+-- "Materialized view decision".

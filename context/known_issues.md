@@ -3,7 +3,7 @@ id: doc.known_issues
 kind: known_issues
 status: verified
 confidence: high
-source: clickathon DB — every claim below tested by query; see each entry for evidence
+source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables
 last_verified: 2026-08-01
 links: [doc.relationship, doc.business, metrics.index, tables.index]
 ---
@@ -79,11 +79,10 @@ entirely empty analysis.
 **✅ Fix — normalize on ingest, then assert overlap:**
 
 ```sql
--- normalize
-concat(substring(raw_id,1,8),'-',substring(raw_id,9,4),'-',substring(raw_id,13,4),
-       '-',substring(raw_id,17,4),'-',substring(raw_id,21,12)) AS application_id
+-- normalize: raw_id -> concat(substring(raw_id,1,8),'-',substring(raw_id,9,4),'-',substring(raw_id,13,4),
+--       '-',substring(raw_id,17,4),'-',substring(raw_id,21,12)) AS application_id
 
--- then MANDATORY overlap check before declaring the table ready
+-- verify: MANDATORY overlap check before declaring the table ready
 SELECT round(100.0 * uniqExactIf(application_id, application_id IN (
          SELECT application_id FROM clickathon.application_started))
        / uniqExact(application_id), 2) AS overlap_pct
@@ -95,6 +94,22 @@ FROM clickathon.<new_table>
 | > 90% | proceed |
 | 1–90% | proceed, **state coverage** in every insight |
 | **0%** | **stop.** Report as a finding. Analyse the table standalone only. |
+
+### D2 verdicts by spec
+
+| Spec | Tables checked | `overlap_pct` | Verdict | Date |
+|---|---|---:|---|---|
+| **01 — Express Checkout** | `express_checkout_shown`, `express_checkout_selected`, `saved_method_used`, `otp_entered`, `express_payment_confirmed` | **0.0%** (all 5) | **STOP** — analyse standalone | 2026-08-01 |
+
+Source: `out/01_express_checkout/load_report.md`. The normalize step ran
+(dashes inserted, 32→36 chars) and the verify query ran against
+`application_started` for all 5 tables — **none matched**. This confirms D2
+is not merely a formatting mismatch for this spec: even correctly-normalized
+`application_id`s from Express Checkout do not overlap the loaded
+`application_started` population. Do not join any of these 5 tables to the
+main funnel via `application_id` until re-tested with a fresh sample. See
+[relationship.md](relationship.md) and each table's page under
+[tables/](tables/index.md) for the same finding.
 
 ## D3 — Capture-quality flag contradicts itself ⛔ CRITICAL
 
@@ -217,7 +232,7 @@ it to something the data says isn't happening.
 | ID | Claim | Verdict |
 |---|---|---|
 | **K2** | Android capture failures since Apr 2026 | ✅ **verified — understated** |
-| K1 | iOS WebKit OTP regression | ❌ refuted (inverted) |
+| K1 | iOS WebKit OTP regression | ❌ refuted (inverted) — direct re-test now instrumentable (spec 01), not yet run |
 | K3 | MRZ OCR weaker on non-Latin passports | ❌ refuted (by proxy) |
 | K4 | Schengen summer slot scarcity | ❌ refuted as Schengen-specific |
 | K6 | SUMMER20 Q2 campaign | ❌ refuted |
@@ -281,6 +296,18 @@ most strongly where it was said to be worst.
 
 Note the real unexplained leak: **52% of all payment intents never convert**, and
 no known issue accounts for it.
+
+**2026-08-01 update — spec 01 (Express Checkout) is now instrumented and
+loaded** (`otp_entered`: 1,007 rows, 937 `otp_success=true` / 70 `false`;
+`express_payment_confirmed`: 836 rows — see
+[otp_entered.md](tables/otp_entered.md)). The columns needed for a direct K1
+re-test now exist. **The re-test itself has not been run** — the Context
+Agent has no live DB access, and `out/01_express_checkout/load_report.md`
+only ran the D2 overlap check for this spec, not a K1 query. Cutting
+`otp_success` / confirmation rate by `os` on `otp_entered` is the next
+analysis to run, and does not require the `application_id` join (D2 is broken
+for this spec — see above), only `otp_entered`'s own `os` column. Update this
+entry with a dated verdict once that query runs.
 
 ## K3 — MRZ OCR on non-Latin passports ❌ REFUTED (by proxy)
 

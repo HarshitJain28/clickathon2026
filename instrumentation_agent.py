@@ -318,7 +318,14 @@ Write exactly two files into the given output directory:
        identifier, plus any entity or column conflicts surfaced by
        relationship.md. Don't rely on a remembered list of which issues
        exist — read both documents fresh for this spec and report what
-       actually applies.
+       actually applies. `loader.py` greps this section for cited ids, so
+       every bullet citing an existing known_issues.md entry MUST lead with
+       the bolded id exactly as `- **D2** — ...` or `- **K1** — ...` (id
+       first, immediately after the opening `**`). A caveat you're raising
+       that ISN'T yet a known_issues.md entry (a new observation) must NOT be
+       written in that shape — phrase it so it doesn't start with something
+       that looks like an id (e.g. lead with a word, not `D9-style ...`),
+       so the loader's id-existence check doesn't need to guess.
 
 Then give a short (under 200 words) plain-text summary as your final
 response: which tables you created vs altered, whether an MV was included,

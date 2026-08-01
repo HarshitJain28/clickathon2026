@@ -3,7 +3,7 @@ id: doc.relationship
 kind: relationship
 status: verified
 confidence: high
-source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables
+source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables
 last_verified: 2026-08-01
 links: [doc.business, doc.known_issues, tables.index]
 ---
@@ -59,6 +59,17 @@ per applying user.
 These do not join. A new spec table joined as-is returns **zero rows without
 erroring**. Normalize on ingest — see [known_issues.md](known_issues.md) → D2.
 
+**Spec 01 (Express Checkout) confirms this is not just a formatting problem.**
+Its 5 new tables (`express_checkout_shown`, `express_checkout_selected`,
+`saved_method_used`, `otp_entered`, `express_payment_confirmed`) had
+`application_id` normalized on ingest (dashes inserted, 32→36 chars) per D2's
+fix, then the mandatory overlap-check ran against `application_started` —
+**`overlap_pct = 0.0%` on all 5 tables** (`out/01_express_checkout/load_report.md`,
+2026-08-01). Per D2's own action table, this is **STOP**: these tables do not
+join the main Application/User funnel via `application_id` even after
+normalization, and must be analysed standalone until re-tested. See
+[known_issues.md](known_issues.md) → D2 for the dated verdict.
+
 Attributes: `destination`, `purpose` (`business`/`medical`/`tourism`/`transit`),
 `co_travelers`, `funnel_type` (`b2c`/`b2c_afc`/`b2c_black`), `flow`, and
 **`eta_shown`** — a categorical **string** (`24 hours`, `3-5 days`, `5-7 days`,
@@ -107,6 +118,15 @@ See [known_issues.md](known_issues.md) → D3.
   application. Reconcile before instrumenting; don't create a parallel model.
 - **Share** (spec 03) — `share_id`. Recipient events carry **no `user_id`**, a
   join topology nothing in this dataset currently supports.
+
+**Spec 01 (Express Checkout) — instrumented, 2026-08-01, no new entity.**
+Checked against this list per `out/01_express_checkout/justification.md`:
+unlike spec 02 and spec 03, Express Checkout introduces no new entity — it is
+a sequence of 5 events (`express_checkout_shown` → `express_checkout_selected`
+→ `saved_method_used` → `otp_entered` → `express_payment_confirmed`) against
+the existing `Application`/`User` entities, so no parallel model was created.
+Its `application_id` join to `Application` is present in schema but **not
+usable** — see the 0% overlap finding above and in `known_issues.md` → D2.
 
 ### Entities `base_context.md` describes that do not exist
 

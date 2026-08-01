@@ -3,16 +3,18 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on all 8 tables
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables
 last_verified: 2026-08-01
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
 # Tables
 
-Eight raw event tables in `clickathon`. **No views or materialized views exist.**
-All share the 30-column envelope defined below; the individual pages cover only
-each table's event-specific columns.
+Thirteen event tables in `clickathon`: 8 baseline tables + 5 new tables from
+spec 01 (Express Checkout). **No views or materialized views exist.** The 8
+baseline tables share the 30-column envelope defined below; the 5 Express
+Checkout tables use a smaller subset of it (see each page). Every page covers
+only its own event-specific columns.
 
 | Table | Role | Rows | Users | Step-through |
 |---|---|---:|---:|---:|
@@ -24,8 +26,21 @@ each table's event-specific columns.
 | [search_typed](search_typed.md) | supporting | 599,630 | 599,630 | — |
 | [landing_page_scrolled](landing_page_scrolled.md) | supporting | 499,786 | 499,786 | — |
 | [auth_completed](auth_completed.md) | supporting | 183,790 | 183,790 | — |
+| [express_checkout_shown](express_checkout_shown.md) | express checkout | 1,650 | 1,650 | — |
+| [express_checkout_selected](express_checkout_selected.md) | express checkout | 1,007 | 1,007 | 61.03%* |
+| [saved_method_used](saved_method_used.md) | express checkout | 1,007 | 1,007 | 100%* |
+| [otp_entered](otp_entered.md) | express checkout | 1,007 | 1,007 | 100%* |
+| [express_payment_confirmed](express_payment_confirmed.md) | **express conversion** | 836 | 836 | 83.02%* |
 
-**Total: 2,480,481 rows.** Data window: 2025-12-31 23:41 → 2026-07-01 03:01.
+`*` Express Checkout step-through figures are row-count ratios from
+`load_report.md`, **not** verified set-membership joins (D1) — see each
+table's page. ⚠ All 5 Express Checkout tables' `application_id` returned
+**0% overlap** against `application_started` (D2 verify, `load_report.md`) —
+they do not join to the main funnel; treat as a standalone flow.
+
+**Total: 2,485,988 rows** (2,480,481 baseline + 5,507 Express Checkout).
+Data window: 2025-12-31 23:41 → 2026-07-01 03:01 (baseline); Express Checkout
+sample: 2026-06-08 → 2026-06-28.
 
 ---
 
@@ -63,7 +78,7 @@ All 8 tables carry these 30 columns identically, then add event-specific ones.
 `duplicate_id` and `is_back_filled` are undocumented data-quality fields —
 decide explicitly whether to filter them, don't ignore them.
 
-## Physical layout (identical on all 8)
+## Physical layout (identical on the 8 baseline tables)
 
 ```sql
 ENGINE = SharedMergeTree
@@ -74,6 +89,11 @@ SETTINGS index_granularity = 8192
 
 ⚠ Leading with the random `id` UUID defeats the primary index. Do **not**
 replicate on new tables — see [known_issues.md](../known_issues.md) → D8.
+
+**The 5 Express Checkout tables (spec 01) correctly do not replicate this.**
+They use `ENGINE = MergeTree`, `ORDER BY (toDate(timestamp), device_type,
+user_id, id)`, and `LowCardinality(String)` for every categorical — D8's
+template, applied for the first time. See each table's page.
 
 ## Two corrections to base_context's table model
 

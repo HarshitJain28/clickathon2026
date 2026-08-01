@@ -93,6 +93,28 @@ Unknown extra fields must be tolerated and preserved, never stripped.
 - Links are relative markdown paths. A link to a not-yet-written page is
   acceptable — it marks future work, not an error.
 
+## Loader-actionable fix blocks (`known_issues.md`)
+
+A `known_issues.md` entry's fenced ` ```sql ` fix block is read by `loader.py`
+(deterministic, not LLM-parsed) whenever a spec's `justification.md` cites that
+entry's id. To stay machine-actionable, a fix block must use exactly these
+line markers:
+
+- `-- normalize: raw_id -> <expr> AS <column>` — a single ClickHouse scalar
+  expression, its input variable always named `raw_id`, ending `AS <column>`
+  to name its target column. The loader batch-evaluates it via ClickHouse
+  itself (`arrayMap(raw_id -> <expr>, {raw_ids:Array(String)})`) — never
+  reimplemented in Python — and applies it to any table in the spec's
+  `ddl.sql` that has a column of that exact name.
+- `-- verify: <query>` — a runnable query containing the literal placeholder
+  `<new_table>`, substituted with the bare table name at load time (write
+  `clickathon.<new_table>` in the query yourself, as D2 does — the loader
+  substitutes only the placeholder, not a `clickathon.`-prefixed one).
+
+Not every entry needs a fix block — most of D1–D9/K1–K7 are narrative only.
+Add one only when the check is meant to run automatically on every future
+spec that hits the same trap.
+
 ## Index files are derived caches
 
 Each `index.md` is regenerated from its siblings' frontmatter: id, title,

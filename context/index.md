@@ -3,7 +3,7 @@ id: doc.index
 kind: index
 status: verified
 confidence: high
-source: clickathon@78f5870d (ClickHouse Cloud), verified against base_context.md
+source: clickathon@78f5870d (ClickHouse Cloud), verified against base_context.md; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables
 last_verified: 2026-08-01
 links: [doc.schema, doc.business, doc.relationship, doc.known_issues, doc.log]
 ---
@@ -30,12 +30,12 @@ derived from data.
 |---|---|
 | Service | `78f5870d-894f-4405-bf4f-542014537dcb` (org *Edelweiss*, aws ap-south-1) |
 | Database | `clickathon` |
-| Tables | 8 raw event tables, **no views or materialized views** |
-| Total rows | 2,480,481 |
-| Data window | 2025-12-31 23:41 → 2026-07-01 03:01 (H1 2026) |
-| Engine | `SharedMergeTree` on all 8 |
-| Partitioning | `PARTITION BY toYYYYMM(timestamp)` on all 8 |
-| Sort key | `ORDER BY (id, timestamp, user_id)` on all 8 ⚠ see D8 |
+| Tables | 13: 8 baseline raw event tables + 5 from spec 01 (Express Checkout), **no views or materialized views** |
+| Total rows | 2,485,988 (2,480,481 baseline + 5,507 Express Checkout, verified via `load_report.md`) |
+| Data window | 2025-12-31 23:41 → 2026-07-01 03:01 (H1 2026 baseline); Express Checkout sample 2026-06-08 → 2026-06-28 |
+| Engine | `SharedMergeTree` on the 8 baseline tables; `MergeTree` on the 5 Express Checkout tables |
+| Partitioning | `PARTITION BY toYYYYMM(timestamp)` on all 13 |
+| Sort key | `ORDER BY (id, timestamp, user_id)` on the 8 baseline tables ⚠ see D8; the 5 Express Checkout tables correctly use D8's fix instead |
 
 ## Contents
 

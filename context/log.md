@@ -13,6 +13,52 @@ links: [doc.index, doc.known_issues]
 Append-only, newest first. Every entry names the evidence behind the change.
 Git history is the authoritative diff; this is the readable summary.
 
+## 2026-08-01 — Spec 01 (Express Checkout) instrumented
+
+Instrumentation Agent output for `01_express_checkout` (`out/01_express_checkout/`:
+`ddl.sql`, `justification.md`, `profile.md`, `load_report.md`) folded into the
+wiki. 5 new tables created, 0 altered:
+
+- `express_checkout_shown` (1,650 rows), `express_checkout_selected` (1,007),
+  `saved_method_used` (1,007, envelope subset only — no event-specific
+  columns), `otp_entered` (1,007), `express_payment_confirmed` (836). Row
+  counts verified live via `load_report.md`.
+- All 5 use a **subset** of the shared 30-column envelope, and (per
+  `known_issues.md` D8) correctly use `MergeTree` +
+  `ORDER BY (toDate(timestamp), device_type, user_id, id)` +
+  `LowCardinality(String)` categoricals — not the 8 baseline tables'
+  `id`-leading sort key.
+- No `ALTER TABLE`: no event in this spec shares a moment/grain with an
+  existing table (see `justification.md` "CREATE vs ALTER call").
+- No new entity: unlike specs 02/03, Express Checkout is a sequence of events
+  against the existing Application/User entities (`relationship.md` updated).
+
+**Key risk carried forward — D2, confirmed broken, not just a formatting
+issue:** `application_id` was normalized on ingest (32-char hex → 36-char
+hyphenated UUID) for all 5 tables, then D2's mandatory overlap-check ran
+against `application_started` and returned **`overlap_pct = 0.0%` on all 5**
+(`load_report.md`) → **STOP** per D2's action table. `known_issues.md` D2 and
+`relationship.md` (Application entity) both updated with this dated verdict;
+none of these 5 tables should be joined to the main funnel via
+`application_id` until re-tested.
+
+**K1 (iOS WebKit OTP regression) is now directly instrumentable** —
+`otp_entered.otp_success`/`otp_attempts` and `express_payment_confirmed` exist
+for the first time — but the re-test itself was **not** run (`load_report.md`
+only executed the D2 check for this spec; the Context Agent has no live DB
+access). Flagged in `known_issues.md` K1 as the next analysis to run —
+cuttable by `otp_entered.os` alone, no `application_id` join required.
+
+Also flagged, not yet a known_issues.md entry: an unexplained ~101-row gap
+between `otp_entered` (1,007, 937 successful) and `express_payment_confirmed`
+(836) that `otp_success=false` (70 rows) doesn't fully account for — see
+`tables/otp_entered.md`.
+
+`tables/index.md` regenerated (13 tables, 2,485,988 total rows).
+
+Evidence: `out/01_express_checkout/justification.md`, `ddl.sql`,
+`profile.md`, `load_report.md`.
+
 ## 2026-08-01 — Stage 0 bootstrap
 
 First verification pass of the handwritten `base_context.md` against the live

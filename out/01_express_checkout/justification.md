@@ -2,81 +2,297 @@
 
 ## Overview
 
-| Object | Kind | Source event(s) | Rows (profile.md) | ORDER BY / key | Notes |
+| Object | Kind | Source event(s) | Rows | ORDER BY / key | Notes |
 |---|---|---|---:|---|---|
-| `express_checkout_shown` | CREATE TABLE | `express_checkout_shown` | 1,650 | `(device_type, toDate(timestamp), user_id, id)` | Impression event; own grain, no existing table shares it |
-| `express_checkout_selected` | CREATE TABLE | `express_checkout_selected` | 1,007 | `(device_type, toDate(timestamp), user_id, id)` | Tap-to-select; distinct fields/moment from `pay_now_clicked` |
-| `saved_method_used` | CREATE TABLE | `saved_method_used` | 1,007 | `(device_type, toDate(timestamp), user_id, id)` | No event-specific payload beyond envelope subset |
-| `otp_entered` | CREATE TABLE | `otp_entered` | 1,007 | `(device_type, toDate(timestamp), user_id, id)` | New mechanism to test K1 directly |
-| `express_payment_confirmed` | CREATE TABLE | `express_payment_confirmed` | 836 | `(device_type, toDate(timestamp), user_id, id)` | Express-flow success event; distinct from `purchase_completed` |
-| — | MATERIALIZED VIEW | — | n/a | — | **Not built** — see decision below |
+| `express_checkout_shown` | CREATE TABLE | `express_checkout_shown` | 1,650 | `(toDate(timestamp), device_type, user_id, id)` | Top of the express flow; button rendered. |
+| `express_checkout_selected` | CREATE TABLE | `express_checkout_selected` | 1,007 | `(toDate(timestamp), device_type, user_id, id)` | User taps Express. |
+| `saved_method_used` | CREATE TABLE | `saved_method_used` | 1,007 | `(toDate(timestamp), device_type, user_id, id)` | No event-specific columns observed — envelope subset only. |
+| `otp_entered` | CREATE TABLE | `otp_entered` | 1,007 | `(toDate(timestamp), device_type, user_id, id)` | First instrumentation able to test K1 directly. |
+| `express_payment_confirmed` | CREATE TABLE | `express_payment_confirmed` | 836 | `(toDate(timestamp), device_type, user_id, id)` | Conversion event for the express flow; nested `payment.*` flattened. |
+| — | ALTER TABLE | none | n/a | — | No event in this spec shares a moment/grain with an existing table (see below). |
+| — | MATERIALIZED VIEW | none | n/a | — | Not built — see "Materialized view decision". |
 
-No `ALTER TABLE` statements were emitted for this spec.
-
----
-
-## CREATE vs ALTER call (per event)
-
-All 5 events in `spec.md` fire as genuinely new occurrences with their own moment and their own row — none of them coincide with the write of an existing table's event:
-
-- **`express_checkout_shown`** — "button rendered", an impression with no analog among the 8 existing tables. Own grain → **CREATE**.
-- **`express_checkout_selected`** — the user tapping the Express button looks superficially like `pay_now_clicked` (both are "commit to paying" taps), but the field sets diverge: `pay_now_clicked` captures `payment_method`/`amount`/`currency`/`coupon_applied`/`plan_selected` at its tap moment (`ddl.sql`, `pay_now_clicked.md`), while `express_checkout_selected` carries only `saved_method_type` — no amount/currency at all (those live on the earlier `express_checkout_shown`). `spec.md`'s "User actions" list is exhaustive for this feature and never mentions `pay_now_clicked` firing on the Express path, so the two are parallel, non-overlapping flows, not the same row gaining new attributes. Own grain → **CREATE**.
-- **`saved_method_used`** — "the saved instrument is loaded", a distinct moment with no analog. Own grain → **CREATE**.
-- **`otp_entered`** — could be mistaken for `auth_completed` (also an auth-adjacent event), but `auth_completed.md`/`instrumentation_notes.md` describe that table as firing "when login/signup finishes" — a session-auth moment near `application_started`, with columns `auth_method`/`is_new_user`/`attempts`. `otp_entered` fires at checkout, for payment authorization, with `otp_attempts`/`otp_success` — a different funnel position and different semantics. Own grain → **CREATE**.
-- **`express_payment_confirmed`** — conceptually parallel to `purchase_completed` ("payment succeeds"), but `purchase_completed.md` documents its own field set (`value`, `currency`, `coupon_applied`, `coupon_name`, `discount_amount`, `insurance_added`, `insurance_amount`, `plan_selected`) built around the standard-checkout add-on economy, none of which appear in `express_payment_confirmed`'s profile (which instead has a nested `payment.amount`/`payment.currency`/`payment.latency_ms`). `pay_now_clicked.md` (`links: ... spec.01_express_checkout`) notes spec 01 is *relevant context* for explaining the `pay_now_clicked → purchase_completed` leak, but nowhere instructs adding columns to `purchase_completed` or `pay_now_clicked` — it's cited as a comparison point, not an instrumentation target. The PM's own question — *"Does Express lift checkout → success conversion vs standard checkout"* — presupposes two separate success signals to compare, confirming these are parallel terminal events, not one table gaining attributes. Own grain → **CREATE**.
-
-`instrumentation_notes.md`'s stated convention ("one table per event, auto-created by the client event SDK") applies cleanly to all 5.
+All 5 tables: `ENGINE = MergeTree`, `PARTITION BY toYYYYMM(timestamp)`.
 
 ---
 
-## Column choices
+## CREATE vs ALTER call
 
-### Shared / envelope-origin columns (present on all 5 tables)
+Per event, checked against every existing table's column list in `ddl.sql` and
+`instrumentation_notes.md`'s "one table per event, auto-created by the client
+event SDK" convention:
 
-- **`id`, `timestamp`** — not observed as named fields in `profile.md` (the profiler tracks them structurally: `id_duplicates`, `time_span` at the event-block header, not per-field presence), but they are the mandatory, non-nullable envelope keys on every one of the 8 existing tables (`tables/index.md`: "`id` UUID **not nullable**"; "`timestamp` DateTime **not nullable**"). This is the explicit envelope contract required in step 2 of the required reading, not an invented column.
-- **`user_id`** — `String`, not nullable. Join key; per the skill's join-key rule this must match the existing envelope's exact type (`tables/index.md`: "not nullable... exactly 28 chars everywhere"). Also 100% present across every one of the 5 profiled events.
-- **`application_id`** — `Nullable(String)`, not `FixedString`, matching the existing envelope's exact type even though every sampled value is a fixed-length hex string. This is the literal case the instructions call out: join keys must match the joined-to column's type, because `FixedString` null-pads and can silently mismatch messy data. **Critical caveat:** `profile.md`'s `express_payment_confirmed.application_id` samples (`000c06bc633c33a6c2c656f9194702a8`, 32 chars) are the 32-char unhyphenated-hex form `known_issues.md` D2 identifies as the incoming-spec format — it will **not** join against `application_started.application_id` (36-char hyphenated UUID) without normalization on ingest. Flagged in `ddl.sql` as a mandatory pre-deployment step, per D2's fix.
-- **`app_version`, `city`, `client_lib`, `device_type`, `geoip_country_code`** — 100% present, 0% null, across all 5 event samples (1650/1007/1007/1007/836 rows). The 8 existing tables declare these `Nullable(String)` system-wide, but `tables/index.md` states an explicit null rate only for `os` (5.95%); nothing documents a null rate for these others. Given zero nulls observed across every row of every event in this spec's full profiled sample, `schema-types-avoid-nullable` ("avoid Nullable unless semantically required") is applied here as the deliberate upgrade the task calls for: declared **not nullable**. All five are also candidates for `LowCardinality(String)` per `schema-types-lowcardinality`'s `low_cardinality` hint (each profiler line is tagged `LC`, all with 0.1–0.8% unique — far under the 1,000-absolute/10%-ratio gate) and genuinely variable-length values (`Mumbai`/`Dubai`/`Singapore` etc. for `city`; `mobile-rn`/`web-js` for `client_lib`), so rule 2 of the string-type decision (not rule 1, `FixedString`) applies.
-- **`destination`** — `FixedString(2)`, not nullable. Every sampled value across all 5 events is a 2-character uppercase ISO-2 code, matching `relationship.md`'s full 27-value domain (`AE AU CA CH EG ES FR GB GR HK ID IT JP KR LK MA MV MY OM QA SA SG TH TR US VN ZA` — all 2 chars). Checked specifically for a catch-all exception (the instructions flag this as a trap): `business.md` and `relationship.md` were both re-checked and neither documents an "OTHER"-style bucket for `destination` (unlike `geoip_country_code`, see below). Rule 1 of the string-type decision applies: uniform byte length, no ragged exception → `FixedString(2)`.
-- **`geoip_country_code`** — deliberately **not** `FixedString` despite every sampled value here being 2 characters (`IN AE SG US AU GB SA`). `tables/index.md`'s envelope table documents the column's full domain as `AE AU GB IN OM OTHER QA SA SG US` — the literal 5-character `OTHER` catch-all the instructions warn about, which this spec's narrow profile sample doesn't happen to show. `LowCardinality(String)` used instead (rule 2), not nullable (0% observed null across the sample).
-- **`os`** — `LowCardinality(Nullable(String))`. Kept nullable: 6.8–7.4% null observed independently across all 5 events in this profile, consistent with the envelope's documented "5.95% NULL" and `instrumentation_notes.md`'s note that some Android rows report `os = NULL`. This is a genuine, corroborated null rate, unlike the other envelope columns above.
+- **`express_checkout_shown`** — fires when the Express button is rendered at
+  checkout, before any tap. No existing table writes a row at this moment
+  (`pay_now_clicked` only fires on the *standard* Pay Now tap). → **CREATE TABLE**.
+- **`express_checkout_selected`** — fires when the user taps Express. This is
+  a distinct occurrence from `pay_now_clicked` (a different button, on a
+  different flow that explicitly *skips* the standard payment form per
+  spec.md's "What it does") — not the same moment as any existing row-write.
+  → **CREATE TABLE**.
+- **`saved_method_used`** — the saved instrument being loaded is a new
+  occurrence with no analogue in the 8 existing tables. → **CREATE TABLE**.
+- **`otp_entered`** — OTP submission is a new occurrence. `pay_now_clicked.md`
+  notes spec 01 "adds `otp_attempts`/`otp_success`, the first instrumentation
+  able to explain" the payment leak, but that is a statement about analytical
+  value, not an instruction to alter `pay_now_clicked` — nothing in
+  `pay_now_clicked`'s column list or `instrumentation_notes.md` describes OTP
+  fields as attributes attached to the Pay Now tap; they belong to their own
+  step, with their own timestamp, in the express flow. → **CREATE TABLE**.
+- **`express_payment_confirmed`** — payment success in the express flow.
+  Distinct row population from `purchase_completed` (own `application_id`
+  set, own nested `payment.*` shape) and no context-wiki sentence ties it to
+  `purchase_completed`'s grain the way `purchase_completed.md` explicitly ties
+  spec 05 (Instant Forex) to its add-on columns ("should be instrumented
+  consistently with them"). No such sentence exists for spec 01. → **CREATE TABLE**.
 
-### Event-specific columns
+No ALTER candidates were found for this spec.
 
-- **`currency`** (`express_checkout_shown`) / **`payment_currency`** (`express_payment_confirmed`) — `FixedString(3)`, not nullable. All sampled values (`INR AED SGD USD AUD GBP SAR`) are 3-character ISO-4217 codes; `purchase_completed.md` documents the platform's full currency domain as 9 values (`AED AUD GBP INR OMR QAR SAR SGD USD`), all 3 characters, with no `OTHER`-style exception anywhere in `known_issues.md`, `business.md`, or `metrics/revenue_per_conversion.md` (checked). Rule 1 applies. 100% present, 0% null in both samples → not nullable.
-- **`eligible`** (`express_checkout_shown`) — `Bool`, not nullable. 100% present; profiler shows a single observed value (`true`), consistent with the field only being emitted when the button is actually rendered.
-- **`shown_amount`** (`express_checkout_shown`) / **`payment_amount`** (`express_payment_confirmed`) — `Float64`, not nullable. 100% present, numeric ranges `[1502.0, 9000.0]` and `[1509.0, 8997.0]`. Kept `Float64` rather than upgrading to `Decimal` (which `schema-types-native-types` would otherwise suggest for money) to match the existing money-column convention used system-wide (`purchase_completed.value`, `pay_now_clicked.amount` are both `Nullable(Float64)`) — these values need direct comparison against those columns to answer the PM's "does Express lift conversion / is Express faster" questions, and a type mismatch there would be a self-inflicted join/compare hazard.
-- **`saved_method_type`** (`express_checkout_selected`) — `LowCardinality(String)`, not nullable. 3 observed values (`card`, `upi`, `wallet`), ragged byte lengths (4/3/6 — not `FixedString`-eligible), `LC`-flagged (0.3% unique). Considered `Enum8` (closed set, insert-time validation) but rejected: `pay_now_clicked.payment_method` is a closely related concept with 5 values (`applePay`, `card`, `netbanking`, `upi`, `wallet`) — evidence that payment-method-type vocabularies on this platform grow over time, so a value arriving outside `{card, upi, wallet}` (e.g. a future `applePay` on Express) is a real risk, not a hypothetical. Matches the 8 existing tables' convention of never using Enum for categoricals.
-- **`otp_attempts`** (`otp_entered`) — `UInt8`, not nullable. 100% present, integer range `[1, 3]`; smallest type that fits, per `schema-types-minimize-bitwidth`.
-- **`otp_success`** (`otp_entered`) — `Bool`, not nullable. 100% present, 2 values.
-- **`payment_latency_ms`** (`express_payment_confirmed`) — `UInt16`, not nullable. 100% present, range `[607, 3999]`, comfortably inside `UInt16` (0–65,535); `UInt32` would waste bits per `schema-types-minimize-bitwidth`.
+## Column policy
 
----
+Columns are exactly the fields profile.md shows present for each event (Field
+× Event Grid). Envelope fields not observed for any of the 5 events —
+`app_session_id`, `device`, `geoip_subdivision_1_code`, `client_ip`,
+`latitude`/`longitude`, `locale`/`language`, `funnel_type`, `co_travelers`,
+`is_guest`/`is_referral`/`is_enterprise`, `gclid`/`fbclid`/`gad_source`,
+`citizenship`, `is_back_filled`, `duplicate_id` — are **not** added, per the
+column policy (an unobserved column is an invented column). This means
+`saved_method_used` carries no event-specific columns at all: profile.md
+shows it has zero fields beyond the 9 common ones (`app_version`,
+`application_id`, `city`, `client_lib`, `destination`, `device_type`,
+`geoip_country_code`, `os`, `user_id`) plus the envelope's `id`/`timestamp`
+row identity.
 
-## ORDER BY / PARTITION BY reasoning (all 5 CREATE TABLEs)
+## Column choices (all 5 tables share the same envelope subset)
 
-`PARTITION BY toYYYYMM(timestamp)` — kept identical to all 8 existing tables. `known_issues.md` D8 only flags the **sort key** as the anti-pattern to avoid on new tables; the monthly partition scheme is unchanged and stays well inside `schema-partition-low-cardinality`'s 100–1,000-partition guidance (a handful of months so far, bounded for years).
+- **`id UUID`, `timestamp DateTime`** — structural row identity/time, implied
+  by profile.md's per-event `id_duplicates: 0` and file-level `time_span`,
+  matching the existing tables' convention. Not nullable (existing tables'
+  convention; also skill `schema-types-avoid-nullable`).
+- **`user_id String`** — 100% present, 0% null in every event's profile row,
+  100% unique per event (own grain). Matches the existing tables' exact
+  `user_id String` type (join-key type match, `relationship.md` §1/§3).
+- **`application_id Nullable(String)`** — 100% present in this spec's sample
+  with no null noted, but typed `Nullable(String)` anyway to match
+  `application_started.application_id`'s exact type, because this is the
+  join key back into the main funnel (`relationship.md` §3 join map) — per
+  the join-key-type-matching rule, join keys must match the existing
+  column's type even when local nullability looks avoidable.
+  **Critical caveat:** see risks below — **D2**.
+- **`device_type`, `os`, `app_version`, `client_lib`, `geoip_country_code`,
+  `city`, `destination`** — see "String-type decision" below.
+- Event-specific columns:
+  - `shown_amount Float64` (`express_checkout_shown`) — 100% present, 89.6%
+    unique, continuous range [1502.0, 9000.0]; matches the existing
+    money-column convention (`value`/`amount`/`insurance_amount` are all
+    `Float64` in `ddl.sql`). Non-nullable: 0% null observed.
+  - `currency` (`express_checkout_shown`) — see String-type decision.
+  - `saved_method_type` (`express_checkout_selected`) — see String-type
+    decision.
+  - `otp_attempts UInt8` (`otp_entered`) — range [1, 3], distinct 3; `UInt8`
+    is the smallest type that fits (skill `schema-types-minimize-bitwidth`).
+    Non-nullable: 100% present, 0% null.
+  - `otp_success Bool` (`otp_entered`) — boolean, distinct 2 (true/false),
+    100% present, 0% null → `Bool` non-nullable (skill
+    `schema-types-native-types`: "Booleans → Bool or UInt8, avoid String").
+  - `payment_amount Float64`, `payment_currency`, `payment_latency_ms UInt16`
+    (`express_payment_confirmed`) — profile.md's dotted `payment.amount` /
+    `payment.currency` / `payment.latency_ms` are flattened to underscored
+    typed columns rather than left as JSON, per skill
+    `schema-json-when-to-use`: this is a fixed, known 3-field shape (not a
+    dynamic schema), so "use typed columns" applies, not the JSON type.
+    `payment_latency_ms` range is [607, 3999] → `UInt16` (smallest type that
+    fits comfortably above the observed max, skill
+    `schema-types-minimize-bitwidth`). Both non-nullable: 100% present, 0%
+    null.
+  - `eligible Bool` (`express_checkout_shown`) — profiled at 100% presence,
+    distinct 1 (`true` only). spec.md's prose only calls out `shown_amount`/
+    `currency` for this event, but the column policy is "exactly the fields
+    observed in profile.md", and `eligible` is a real, 100%-present field in
+    the profiler's grid — so it is included as non-nullable `Bool` rather
+    than silently dropped for not matching the spec's prose description.
 
-`ORDER BY (device_type, toDate(timestamp), user_id, id)` on all 5 tables:
+## String-type decision (per column)
 
-- **D8 compliance (mandatory):** `known_issues.md` D8 states plainly that the 8 existing tables' `ORDER BY (id, timestamp, user_id)` — leading with a random UUID — "defeats the primary index" and that "new tables must not inherit this... lead with real filter columns." None of these 5 tables lead with `id`.
-- **`schema-pk-cardinality-order`** (low-to-high cardinality): `device_type` has only 4 distinct values in every one of the 5 profiled events (the lowest-cardinality categorical observed, tied with `os`/`client_lib`, but `device_type` is the one the PM's own questions name directly — *"Is there a platform where OTP/payment fails more (e.g. iOS)?"* and *"segments adopt Express most (device, geo, saved-method type)"*), so it leads. `toDate(timestamp)` gives coarse date pruning next (per the rule's "2nd: Date, coarse granularity" guidance). `user_id` (medium-high cardinality, and the universal join key per `relationship.md` §3) comes next. `id` (fully random, highest cardinality) is last, matching the rule's "Last: high cardinality" and the "4-5 key columns" sizing guidance.
-- **`schema-pk-prioritize-filters`**: `device_type` and `user_id` are the two columns every PM question in `spec.md` implies filtering or grouping by (platform cuts, segment adoption, and — via `user_id` joins — cross-table funnel comparisons).
-- `application_id` was deliberately **not** added to the key: it's ~100% unique (near-`user_id`-equivalent selectivity) and `known_issues.md` D1's fix pattern for cross-table funnel analysis is a semi-join with `IN` against a set, not an equality filter on `application_id` itself — `user_id` already covers the point-lookup case, and adding a second near-unique column would push past the "4-5 columns typically sufficient" guidance for no real query-pattern benefit.
+- **`device_type`** (`ios`/`android`/`web-user-b2c`/`Desktop`, 4 values,
+  0.2–0.5% unique across events) → `LowCardinality(String)`. Ragged casing
+  (`Desktop` vs `ios`) rules out `FixedString`; low, stable cardinality plus
+  known_issues.md **D8**'s explicit instruction ("`LowCardinality(String)`
+  for all categoricals ... 4 device types ... — all tiny") makes
+  `LowCardinality(String)` the direct call. Non-nullable: 100% present, 0%
+  null in every event.
+- **`os`** (`iOS`/`Android`/`Mac OS X`/`Windows`, 4 values) →
+  `LowCardinality(Nullable(String))`. Same cardinality argument as
+  `device_type`, but profile.md shows a genuine null rate (6.8–7.4% per
+  event, consistent with the existing envelope's 5.95% null) — nullability
+  here is semantic (SDK didn't report OS), not just "no data seen yet", so
+  `Nullable` is kept per skill `schema-types-avoid-nullable`'s carve-out.
+- **`app_version`** (`7.45.2`/`7.44.0`/`7.46.0`, 3 values, 0.2–0.4% unique) →
+  `LowCardinality(String)`, not `FixedString`. All three sampled values are
+  the same length (6 chars), but there is no wiki statement guaranteeing the
+  version string format is permanently fixed-width (a future two-digit patch
+  release, e.g. `7.47.10`, would be 7 chars) — the "confirmed fixed length"
+  bar from the string-type policy isn't met, so `LowCardinality(String)` is
+  the safe low-cardinality choice, matching D8's spirit.
+- **`client_lib`** (`mobile-rn`/`web-js`, 2 values) → `LowCardinality(String)`.
+  Tiny, stable set; no fixed-length guarantee either.
+- **`geoip_country_code`** (7 values in this sample: `IN AE SG US AU GB SA`) →
+  `LowCardinality(String)`, **not** `FixedString(2)` despite every sampled
+  value being 2 chars. `tables/index.md`'s envelope documents this exact
+  column platform-wide as `AE AU GB IN OM OTHER QA SA SG US` — the `OTHER`
+  catch-all is a real, longer value used elsewhere for this column even
+  though it doesn't appear in this spec's 7-value sample. A `FixedString(2)`
+  column would corrupt or reject that bucket. `LowCardinality(String)` also
+  matches D8's explicit instruction ("10 geos ... all tiny").
+- **`city`** (7 values, e.g. `Mumbai`, `New York`) → `LowCardinality(String)`.
+  Variable length (`Dubai` vs `New York`), genuinely low cardinality (0.4–0.8%
+  unique) → the textbook `LowCardinality` case per the skill's own rule
+  (city/country *names*, not fixed codes).
+- **`destination`** (14 values in this sample, subset of the platform's 27
+  ISO-2 codes) → `LowCardinality(String)`. The general skill would allow
+  `FixedString(2)` for a confirmed 2-char code, but known_issues.md **D8**
+  names `destination` by number ("27 destinations ... all tiny") as one of
+  the columns to make `LowCardinality(String)`, and this is a known_issues.md
+  mandatory constraint for new tables — followed literally over the general
+  skill default, for consistency with every other new-table categorical here.
+- **`currency`** / **`payment_currency`** (7 values in each sample: `INR AED
+  SGD USD AUD GBP SAR`, all ISO-3 codes) → `LowCardinality(String)`. Same D8
+  reasoning as `destination`/`geoip_country_code`: D8 explicitly names "9
+  currencies — all tiny" as a `LowCardinality(String)` categorical; followed
+  literally rather than switching to `FixedString(3)`, both for D8-compliance
+  and because `purchase_completed.currency`/`pay_now_clicked.currency` (the
+  columns these will eventually be compared against in cross-flow analysis)
+  are plain `Nullable(String)` with no fixed-length guarantee documented
+  anywhere in the wiki.
+- **`saved_method_type`** (`card`/`upi`/`wallet`, 3 values, 0.3% unique) →
+  `LowCardinality(String)`. Genuinely small closed-looking set, but **not**
+  `Enum8`: `pay_now_clicked.payment_method` (the closest existing analogue)
+  has a *different*, larger domain (`applePay`/`card`/`netbanking`/`upi`/
+  `wallet`) that isn't closed across the platform, and skill
+  `schema-types-enum`'s guidance is "values may change frequently →
+  LowCardinality(String)" — an `Enum` here risks an insert-time rejection the
+  moment Express adds a new saved-method type (e.g. `applePay`), a real cost
+  for no proven benefit over `LowCardinality`.
 
----
+No column in this spec qualifies for `Enum8`/`Enum16`: per skill
+`schema-types-enum`, Enum requires confidence that "no new value will appear
+upstream without a schema change." Every categorical here (`device_type`,
+`saved_method_type`, `currency`, etc.) is a live product surface still being
+built (spec.md is describing a brand-new feature), so treating any of their
+value sets as closed and versioned would be an unfounded guess.
+
+## ORDER BY / PARTITION BY reasoning
+
+All 5 tables use:
+```
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (toDate(timestamp), device_type, user_id, id)
+```
+
+- `PARTITION BY toYYYYMM(timestamp)` matches the existing 8 tables and stays
+  well inside skill `schema-partition-low-cardinality`'s 100–1,000-partition
+  guidance (6 months of data → 6 partitions).
+- `ORDER BY` deliberately does **not** lead with `id` (a random UUID), unlike
+  the 8 existing tables — known_issues.md **D8** is explicit that new tables
+  "must not inherit" that anti-pattern, and gives the template
+  `(toDate(timestamp), destination, user_id, id)`.
+- This spec substitutes `device_type` for `destination` as the second key,
+  per skill `schema-pk-prioritize-filters` ("prioritize columns frequently
+  used in query filters") and `schema-pk-cardinality-order` (low cardinality
+  first): spec.md's own "Questions the PM will ask" name `device_type`/`os`
+  twice ("Is there a platform where OTP / payment fails more... Cut
+  `otp_success` and confirmation rate by `device_type`/`os`/
+  `geoip_country_code`" and "Which segments adopt Express most (device,
+  geo, saved-method type)"), never `destination` — `device_type` is the
+  higher-value filter column for this spec's actual queries, and unlike
+  `os` it has 0% null in every event, so it also indexes cleanly.
+- `toDate(timestamp)` (not raw `DateTime`) leads per
+  `schema-pk-cardinality-order`'s tip, since every anticipated query
+  (funnel trend, monthly rollups) filters at day/month granularity, not
+  second precision.
+- `user_id` before `id`: both are ~100%-unique per table, but `user_id` is a
+  genuine cross-table join/filter column (`relationship.md` §3); `id` is
+  never filtered on, so it goes last per `schema-pk-cardinality-order`'s
+  "Last: High cardinality (if needed): event_id, uuid".
+- 4 key columns total, within the skill's "4–5 key columns" guidance
+  (`schema-pk-plan-before-creation`).
 
 ## Materialized view decision
 
-**Not built.** `spec.md`'s "Questions the PM will ask" do describe repeated segment breakdowns (device/OS/geo cuts on OTP and confirmation rate, funnel-rate comparisons, adoption by segment) — the shape of question that `query-mv-incremental` says an MV earns its keep on ("read thousands of rows instead of billions"). But that rule's own justification is scale: it pays off when a query would otherwise re-scan **billions** of rows on every dashboard load. `profile.md` shows this feature at 836–1,650 rows per event table — three orders of magnitude below even the smallest of the 8 existing raw tables (`purchase_completed`, 7,054 rows), which itself has no MV. `tables/index.md` confirms the whole system currently has **zero** materialized views across all 8 tables, including `destination_card_clicked` at 1,000,000 rows and heavily segmented in every funnel query — the established precedent in this system is direct queries against raw tables, not pre-aggregation, until scale actually demands it. Building an MV over tables two-to-three orders of magnitude smaller than the largest un-MV'd table in the system would be optimizing for a load pattern that doesn't exist yet, not "genuinely earning its keep." Revisit if/when these tables approach the existing tables' row counts.
-
----
+**Not built.** Every source table here is small in the profiled sample
+(836–1,650 rows) — orders of magnitude below the 2,480,481-row baseline the
+8 existing tables carry, and below the scale skill `query-mv-incremental`
+targets ("read thousands of rows instead of billions... full aggregation on
+every dashboard load" scanning "billions of rows"). A direct `GROUP BY`
+against any of these 5 tables is already a cheap full scan; pre-aggregating
+now would add write-path complexity (a `-State`/`-Merge` AggregatingMergeTree
+pair per rollup) for a query cost that isn't a problem yet. If Express
+Checkout volume grows to be a large share of the ~1,000,000-row top-of-funnel
+scale, revisit an hourly/daily rollup MV for the "checkout → success
+conversion" and "OTP/payment failure by platform" cuts — at that point
+`query-mv-incremental`'s incremental-aggregation pattern (`countState`/
+`uniqState` in the MV, `-Merge` at query time) is the right template.
 
 ## Risks / caveats to carry forward
 
-- **D2 (⛔ critical)** — `application_id` in this spec's raw events is the 32-char unhyphenated-hex form, confirmed directly in `profile.md`'s `express_payment_confirmed` sample (`000c06bc633c33a6c2c656f9194702a8`), not the DB's 36-char hyphenated UUID. Per D2's fix, ingestion **must** normalize on insert and the `overlap_pct` check against `clickathon.application_started` must be run and its result (>90% proceed / 1–90% state coverage / 0% stop) recorded before any of these 5 tables are joined to the existing funnel. This is the single highest-priority pre-deployment check for this spec — noted inline in `ddl.sql` as well.
-- **D1 (⛔ critical)** — do not use `windowFunnel`/`sequenceMatch` to compute "Express vs standard checkout → success conversion" or "time from shown → confirmed." `relationship.md` §4 shows timestamps are not reliably monotonic even within the existing, well-established funnel (52.2% of `purchase_completed` rows post-date their own `document_uploaded`); there's no reason to assume the new Express event chain is exempt. Use set-membership counts (or, once monotonicity is explicitly verified per D1's `monotonic_share` check for these specific new tables, time-ordered functions **within** a single table only).
-- **D8** — honored directly in the ORDER BY design above; flagging again so a future ALTER/rebuild of these tables doesn't regress back to `(id, timestamp, user_id)`.
-- **D9-style vocabulary collision (new, not in known_issues.md yet)** — `purchase_completed.plan_selected` already has a value literally named `express` (`black`/`express`/`standard` — a visa-processing-speed tier, per `purchase_completed.md`), which is semantically unrelated to this feature's "Express Checkout." Any cross-table analysis that filters on the word "express" without also specifying the source table/column risks silently mixing the two unrelated concepts. Worth adding to `known_issues.md` as a D9-style entry once the Context Agent updates the wiki.
-- **Currency/money caution (carried from D7)** — `shown_amount` and `payment_amount` inherit the same multi-currency caveat D7 raises for `purchase_completed.value`: 7 currencies observed in this spec's sample alone (of the platform's 9). Never aggregate `shown_amount`/`payment_amount` without `GROUP BY currency` / `payment_currency`.
-- **Entity/column conflicts (relationship.md)** — checked §"Entities the incoming specs will add": only spec 02 (`group_id` vs `co_travelers`) and spec 03 (`share_id`, no `user_id`) are flagged there. Spec 01 introduces no entity or column that conflicts with anything in `relationship.md`'s existing model; `saved_method_type` is related to but distinct from `pay_now_clicked.payment_method` (noted above under column choices, not a conflict requiring reconciliation).
+- **D2** — the raw application_id in this spec's NDJSON is the 32-char
+  unhyphenated hex form (confirmed directly in profile.md's
+  `express_payment_confirmed.application_id` sample, e.g.
+  `000c06bc633c33a6c2c656f9194702a8`, verified 32 characters), not the
+  36-char hyphenated UUID `application_started.application_id` uses. All 5
+  tables' `application_id` must be normalized on ingest (insert dashes at
+  8-4-4-4-12), and the mandatory overlap-check query from D2 must be run
+  against `application_started` for each table before any cross-table join
+  or funnel-lift analysis is trusted. Until that overlap check runs, treat
+  express-checkout-to-standard-funnel joins as unverified.
+- **D1** — do not use `windowFunnel`/`sequenceMatch` across
+  `express_checkout_shown → ... → express_payment_confirmed` (or against
+  `pay_now_clicked`/`purchase_completed`) without first running D1's
+  monotonicity check (`countIf(t_later >= t_earlier) / count()`); the
+  existing funnel showed only 52.2% of `purchase_completed` rows post-date
+  `document_uploaded`, so time-ordering must not be assumed for this new
+  funnel either. Use set-membership counts (D1's fix) unless monotonic_share
+  is verified ≥ ~0.99.
+- **D8** — followed for physical layout on all 5 tables (see ORDER BY
+  reasoning above); flagged here only so a reviewer can confirm none of the
+  new tables silently reverted to the legacy `(id, timestamp, user_id)` key.
+- **D7** — `shown_amount`, `payment_amount` span the same multi-currency set
+  as `purchase_completed.value` (`currency`/`payment_currency` show 7 codes
+  in this sample, a subset of the platform's 9). Never `sum`/`avg` these
+  without `GROUP BY currency`/`payment_currency`.
+- **D9** — `device_type` mixes casing (`ios`, `android`, `web-user-b2c` vs
+  `Desktop`) exactly as documented platform-wide; any cross-table
+  segment-adoption comparison must not assume case-normalized equality.
+- **D6** — every event in this profile has exactly one row per `user_id`
+  (e.g. `express_checkout_shown`: 1,650 rows, 1,650 distinct `user_id`); no
+  repeat users. Any "does a user retry Express after a failed OTP" question
+  is therefore unanswerable from this dataset and should be refused with an
+  explanation, not answered with a join that silently returns zero repeats.
+- **K1** — refuted (iOS is the *best*-converting high-volume platform on the
+  existing `pay_now_clicked → purchase_completed` step, especially in the
+  Gulf). `otp_entered`/`express_payment_confirmed` are the first columns able
+  to test the underlying mechanism directly — analyze `otp_success` and
+  confirmation rate by `os` on their own merits, but do not frame any result
+  as confirming or refuting K1 by association; test it fresh.
+- `relationship.md` §1 ("Entities the incoming specs will add") was checked
+  for conflicts: unlike spec 02 (`group_id` vs `co_travelers`) and spec 03
+  (`share_id` with no `user_id`), spec 01 introduces no new entity — Express
+  Checkout is instrumented as a sequence of events against the existing
+  `Application`/`User` entities, so no parallel model was created.
+  `relationship.md` §3's join map should be extended, once D2's normalization
+  is verified, to include these 5 tables' `application_id` alongside
+  `document_uploaded`/`pay_now_clicked`/`purchase_completed`.
+- New observation (not yet a known_issues.md entry): `saved_method_type`'s
+  observed domain (`card`/`upi`/`wallet`) is a strict subset of
+  `pay_now_clicked.payment_method`'s domain (`applePay`/`card`/`netbanking`/
+  `upi`/`wallet`) — Express appears not to support Apple Pay or netbanking
+  today. Worth confirming with product before reading "Express adoption by
+  saved-method type" against the full standard-checkout payment-method mix,
+  since the two columns are not directly comparable 1:1.
+- New observation: in this sample, `otp_entered` has 1,007 rows but
+  `express_payment_confirmed` has only 836 — a 171-row (17%) drop, while
+  `otp_success = false` accounts for only 70 of those rows. There is an
+  unexplained ~101-row gap between a successful OTP and a confirmed payment
+  that no column here currently explains; worth surfacing to the Analytics
+  Agent as the express-flow analogue of the existing unexplained
+  `pay_now_clicked → purchase_completed` leak.
