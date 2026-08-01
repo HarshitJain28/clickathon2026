@@ -3,18 +3,18 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size
 last_verified: 2026-08-02
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
 # Tables
 
-Thirteen event tables in `clickathon`: 8 baseline tables + 5 new tables from
-spec 01 (Express Checkout). **No views or materialized views exist.** The 8
-baseline tables share the 30-column envelope defined below; the 5 Express
-Checkout tables use a smaller subset of it (see each page). Every page covers
-only its own event-specific columns.
+Seventeen event tables in `clickathon`: 8 baseline tables + 5 from spec 01
+(Express Checkout) + 4 from spec 02 (Group / Family Applications). **No views
+or materialized views exist.** The 8 baseline tables share the 30-column
+envelope defined below; the 9 spec tables each use a smaller subset of it
+(see each page). Every page covers only its own event-specific columns.
 
 | Table | Role | Rows | Users | Step-through |
 |---|---|---:|---:|---:|
@@ -31,6 +31,29 @@ only its own event-specific columns.
 | [saved_method_used](saved_method_used.md) | express checkout | 1,007 | 1,007 | 100%* |
 | [otp_entered](otp_entered.md) | express checkout | 1,007 | 1,007 | 100%* |
 | [express_payment_confirmed](express_payment_confirmed.md) | **express conversion** | 836 | 836 | 83.02%* |
+| [group_started](group_started.md) | group flow | 1,200 | 1,200 | — |
+| [traveller_added](traveller_added.md) | group flow (fan-out) | 3,495 | 1,200† | — |
+| [traveller_removed](traveller_removed.md) | group flow (churn) | 70 | 69† | — |
+| [group_submitted](group_submitted.md) | **group conversion** | 688 | 688 | **57.33%**‡ |
+
+`†` `traveller_added`/`traveller_removed` break the "one row per user"
+pattern the other 15 tables share — a group owner can add/remove multiple
+co-travellers, so distinct users is lower than row count. See D6 and each
+table's page.
+
+`‡` `group_submitted`'s step-through from `group_started` (688/1,200 =
+57.33%) is now a **verified** set-membership join (`group_submitted.group_id
+⊆ group_started.group_id` by construction, per D1), per the Analysis
+Agent's `analysis/q01.md` and `q03.md` (2026-08-02, independently
+reproduced by both). It also falls **monotonically** by `group_size`: from
+69.47% (size 2) to 31.11% (size 6) — see
+[group_started.md](group_started.md) and
+[metrics/group_completion_rate_by_size.md](../metrics/group_completion_rate_by_size.md).
+All 4 Group/Family tables' `application_id` returned **0% overlap** against
+`application_started` (D2 verify, `load_report.md`, 2026-08-02,
+independently re-confirmed by all 4 of `analysis/q01.md`–`q04.md`, none of
+which found a working `application_id` path) — same STOP verdict as spec
+01; treat as a standalone flow, not joinable to the main funnel.
 
 `*` Express Checkout step-through figures were originally row-count ratios
 from `load_report.md`, not verified set-membership joins (D1). **2026-08-02
@@ -46,9 +69,10 @@ row-count ratio — see each table's page. ⚠ All 5 Express Checkout tables'
 verify, `load_report.md`, re-confirmed independently by `analysis/q01.md`–
 `q04.md`) — they do not join to the main funnel; treat as a standalone flow.
 
-**Total: 2,485,988 rows** (2,480,481 baseline + 5,507 Express Checkout).
-Data window: 2025-12-31 23:41 → 2026-07-01 03:01 (baseline); Express Checkout
-sample: 2026-06-08 → 2026-06-28.
+**Total: 2,491,441 rows** (2,480,481 baseline + 5,507 Express Checkout +
+5,453 Group/Family). Data window: 2025-12-31 23:41 → 2026-07-01 03:01
+(baseline); Express Checkout sample: 2026-06-08 → 2026-06-28; Group/Family
+sample: 2026-06-08 → 2026-06-28 (same window, per profile.md).
 
 ---
 
@@ -102,6 +126,14 @@ replicate on new tables — see [known_issues.md](../known_issues.md) → D8.
 They use `ENGINE = MergeTree`, `ORDER BY (toDate(timestamp), device_type,
 user_id, id)`, and `LowCardinality(String)` for every categorical — D8's
 template, applied for the first time. See each table's page.
+
+**The 4 Group/Family tables (spec 02) also follow D8, with a further
+substitution.** `ENGINE = MergeTree`, `ORDER BY (toDate(timestamp),
+group_size, group_id, id)` — `group_size` and `group_id` replace spec 01's
+`device_type`/`user_id` because `group_id`/`user_id` are 1:1-collinear here
+and the PM's questions are phrased per-group, not per-user (`group_size` is
+also the PM's most-cited dimension for this spec). See
+[group_started](group_started.md) for the full reasoning.
 
 ## Two corrections to base_context's table model
 

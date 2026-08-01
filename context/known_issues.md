@@ -3,7 +3,7 @@ id: doc.known_issues
 kind: known_issues
 status: verified
 confidence: high
-source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension
+source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size
 last_verified: 2026-08-02
 links: [doc.relationship, doc.business, metrics.index, tables.index]
 ---
@@ -76,6 +76,17 @@ latency at all, but the whole application-session gap (consistent with
 own `payment_latency_ms` — see
 [express_payment_confirmed.md](tables/express_payment_confirmed.md).
 
+**2026-08-02 addendum (source: `out/02_group_family/analysis/q01.md`,
+`q03.md`):** spec 02's `group_started → group_submitted` completion-rate
+question is the same funnel shape and was computed correctly — by set
+membership (`group_submitted.group_id ⊆ group_started.group_id` by
+construction), not `windowFunnel` — by both files independently. No
+monotonicity percentage was computed for this pair (unlike the
+`document_uploaded`/`pay_now_clicked` → `purchase_completed` checks above,
+which have real timestamp columns to test); set membership was used
+directly since it holds by construction here. See
+[group_started.md](tables/group_started.md).
+
 ## D2 — Spec `application_id` won't join ⛔ CRITICAL
 
 | Source | Example | Length |
@@ -114,6 +125,7 @@ FROM clickathon.<new_table>
 | Spec | Tables checked | `overlap_pct` | Verdict | Date |
 |---|---|---:|---|---|
 | **01 — Express Checkout** | `express_checkout_shown`, `express_checkout_selected`, `saved_method_used`, `otp_entered`, `express_payment_confirmed` | **0.0%** (all 5) | **STOP** — analyse standalone | 2026-08-01 |
+| **02 — Group / Family** | `group_started`, `traveller_added`, `traveller_removed`, `group_submitted` | **0.0%** (all 4) | **STOP** — analyse standalone | 2026-08-02 |
 
 Source: `out/01_express_checkout/load_report.md`. The normalize step ran
 (dashes inserted, 32→36 chars) and the verify query ran against
@@ -130,6 +142,23 @@ questions** (`out/01_express_checkout/analysis/q01.md`–`q04.md`), each of
 which stayed within Express Checkout's own tables (joined on `user_id`
 instead, safe per D6) rather than attempting the broken `application_id`
 join. No question found a working path around the 0% overlap.
+
+**2026-08-02 — spec 02 (Group / Family) confirms the same pattern a third
+time.** Source: `out/02_group_family/load_report.md`. The normalize step ran
+on all 4 tables and the verify query ran against `application_started` —
+**none matched** (`overlap_pct = 0.0%` on all 4). Do not join
+`group_started`/`traveller_added`/`traveller_removed`/`group_submitted` to
+the main funnel via `application_id`. See [relationship.md](relationship.md)
+→ "Group" and [tables/group_started.md](tables/group_started.md) and its 3
+sibling pages.
+
+**2026-08-02 — independently re-confirmed by all 4 of the Analysis Agent's
+questions for spec 02** (`out/02_group_family/analysis/q01.md`–`q04.md`),
+each of which stayed within the Group/Family flow's own 4 tables (joined on
+`group_id` instead, spec-local key, safe) rather than attempting the broken
+`application_id` join. No question found a working path back to
+`application_started` or the main funnel — every finding in q01–q04 is
+scoped to the group flow standalone, as D2 requires.
 
 ## D3 — Capture-quality flag contradicts itself ⛔ CRITICAL
 

@@ -23,6 +23,7 @@ H1 2026 (2026-01-01 → 2026-07-01).
 | [conversion_rate](conversion_rate.md) (÷ sessions) | 0.71% | **refuted** | high |
 | [on_time_delivery_rate](on_time_delivery_rate.md) | — | **unverifiable** | low |
 | [express_conversion_lift](express_conversion_lift.md) | +35.2pp (83.02% vs 47.86%) | verified | medium |
+| [group_completion_rate_by_size](group_completion_rate_by_size.md) | 69.47%→31.11% (size 2→6), 57.33% overall | verified | high |
 
 ## Three rules for reporting any of these
 
