@@ -13,6 +13,159 @@ links: [doc.index, doc.known_issues]
 Append-only, newest first. Every entry names the evidence behind the change.
 Git history is the authoritative diff; this is the readable summary.
 
+## 2026-08-02 — Spec `04_checkout_recovery_3` analysis consolidated — duplicate-load question resolved, K5 re-tested, recovery rate verified
+
+`out/04_checkout_recovery_3`'s `ddl.sql`/`justification.md`/`profile.md`/
+`load_report.md` re-confirm the same 6-table Abandoned Checkout Recovery
+family already documented (`abandonment_detected`, `reminder_sent`,
+`reminder_opened`, `reminder_cta_clicked`, `resumed_at_step`,
+`reconverted`) — no new tables, no `ALTER`s, same D1/D2/D6/D8/D9 risk set
+as the prior consolidation (see the entry below). This run's
+`analysis/` directory now has 4 question files
+(`q01.md`–`q04.md`), the first ever produced for spec 04, and this pass
+consolidates their findings into the 6 table pages, `tables/index.md`,
+`known_issues.md`, `index.md`, and a new `metrics/recovery_rate.md` page.
+
+**PM questions answered, headline findings:**
+- **q01 — recovery rate by `drop_step`:** verified (`user_id` set-membership
+  join, 93/93 `reconverted` ⊆ 2,300 `abandonment_detected`). Flat
+  4.45%–4.80% for `application_started`/`pay_now_clicked`/`document_uploaded`,
+  worst at 2.62% for `destination_card_clicked`. Overall 4.04%. Also
+  independently re-confirmed the live row counts of `abandonment_detected`
+  (2,300) and `reconverted` (93) are not doubled.
+- **q02 — which channel recovers best:** verified (`user_id` join,
+  `reminder_sent → reminder_opened → reminder_cta_clicked → reconverted`,
+  no fan-out). WhatsApp wins open rate (46.28%) but **push** wins
+  end-to-end recovery-of-sent (4.66% vs. 4.34%) — the K5 (WhatsApp nudge)
+  re-test: partially confirmed, WhatsApp drives engagement but is not the
+  best channel overall. Also independently re-checked all 6 tables' live
+  row counts against the documented figures — no duplication.
+- **q03 — does timing (`hours_since_drop`) matter:** verified, no
+  meaningful effect — recovery rate ranges only 3.46%–4.84% across
+  1h/3h/6h/24h/48h delays, no monotonic pattern, within ~1 SE of the
+  pooled base rate. Also independently re-confirmed `reminder_sent`'s live
+  row count (2,300, not 4,600).
+- **q04 — segment cuts + bonus (does recovery target the real funnel's
+  worst drop-offs):** device/geo/destination cuts are mostly flat and
+  small-n. **New finding:** recovery does *not* target the real funnel's
+  actual worst drop-offs — the two biggest real leaks (845,587 and
+  133,967 non-progressors) get flagged for recovery at only 0.08%/0.39%,
+  while two much smaller late-stage leaks get flagged at 12.2%/5.2%
+  (30–150× higher) — a targeting/detection-coverage gap, not a "recovery
+  works better there" story. Also independently re-confirmed
+  `abandonment_detected`/`reconverted` live counts.
+
+**Duplicate-load question resolved.** All 4 files independently ran live
+`count()`/`uniqExact(user_id)` against these 6 tables and found the exact
+documented figures (2,300/2,300/690/268/268/93) — no duplication. The
+`out/04_checkout_recovery_3` resubmission did not double any table's true
+row count; the platform-wide 2,503,863-row total stands confirmed.
+
+**Still open:** the `abandonment_detected → reminder_sent` step and the
+`reminder_cta_clicked → resumed_at_step → reconverted` leg specifically —
+every joined query reaches `reconverted` directly, bypassing
+`resumed_at_step`, so its own step-through ratios remain unverified. The
+`user_id` overlap-check against the main funnel (flagged as a follow-up in
+`justification.md`) also still has not been run by any `analysis/qNN.md`
+file.
+
+**Evidence:** `out/04_checkout_recovery_3/ddl.sql`,
+`out/04_checkout_recovery_3/justification.md`,
+`out/04_checkout_recovery_3/profile.md`,
+`out/04_checkout_recovery_3/load_report.md`,
+`out/04_checkout_recovery_3/analysis/q01.md`–`q04.md`. Pages touched: all
+6 spec-04 table pages, `tables/index.md`, `known_issues.md` (D1 addendum,
+D2 resolution, K5 re-test verdict), `index.md`, new
+`metrics/recovery_rate.md` + `metrics/index.md`.
+
+## 2026-08-02 — Spec 04 resubmitted as `04_checkout_recovery_3` — same 6 tables, no new tables, open duplicate-load question
+
+`out/04_checkout_recovery_3` re-profiles, re-justifies, and re-loads the
+identical 6-table Abandoned Checkout Recovery family already documented
+under `out/04_abondon_checkout_recovery_2` (`abandonment_detected`,
+`reminder_sent`, `reminder_opened`, `reminder_cta_clicked`,
+`resumed_at_step`, `reconverted`). `ddl.sql` uses `CREATE TABLE IF NOT
+EXISTS` — no new tables created, no `ALTER`s, no new columns, no change to
+the 28-table count. Per SCHEMA.md's create-vs-update rule, no new page was
+created (never `_v2`); instead all 6 existing table pages, `tables/index.md`,
+`known_issues.md`, `relationship.md`, and this wiki's root `index.md` were
+updated in place: their `source` frontmatter now also cites this spec's
+`ddl.sql`/`justification.md`/`load_report.md`, and each carries a new note
+flagging an **open, unresolved question** — `load_report.md` from this run
+reports byte-identical row counts (2,300/2,300/690/268/268/93) and an
+identical D2 verdict (`overlap_pct = 0.0%` on all 6, STOP) to the original
+load, but neither run's `load_report.md` states whether this resubmission's
+`INSERT` step was idempotent (no new rows) or a genuine duplicate re-insert
+(silently doubling each table's true live row count, and with it the
+platform-wide 2,503,863-row total). `CREATE TABLE IF NOT EXISTS` only
+guarantees the DDL is skipped, not the load. This wiki has no live DB
+access to resolve it with a `SELECT count()`, and no `analysis/qNN.md`
+file exists for this spec (under either output directory) to settle it by
+live query either.
+
+**Risks carried forward, evidence from `out/04_checkout_recovery_3/
+justification.md` and `load_report.md`:** identical D1/D2/D6/D8/D9 set as
+the original spec 04 run — no new risk, no new finding beyond the
+duplicate-load question above. The still-outstanding `user_id` overlap
+check against the main funnel (flagged as this spec's first
+join-integrity test, per `known_issues.md` → D2 and `relationship.md` →
+"Recovery") has still not been run.
+
+**No PM questions answered** — `out/04_checkout_recovery_3/analysis` does
+not exist; nothing to consolidate from the Analysis Agent for this spec.
+
+## 2026-08-02 — Spec 04 (Abandoned Checkout Recovery) instrumented
+
+6 new tables created (no `ALTER`s): `abandonment_detected` (2,300 rows),
+`reminder_sent` (2,300), `reminder_opened` (690), `reminder_cta_clicked`
+(268), `resumed_at_step` (268), `reconverted` (93) — new pages under
+[tables/](tables/index.md), all `status: verified` via `load_report.md`
+row counts. None share grain with an existing table or with each other's
+business concept closely enough to warrant folding (`reconverted` was
+checked column-by-column against `purchase_completed` and kept separate —
+see [reconverted.md](tables/reconverted.md)). All 6 use `ENGINE =
+MergeTree`, D8-compliant `ORDER BY (toDate(timestamp), drop_step|channel,
+user_id, id)` — no new anti-pattern. `tables/index.md` and
+[index.md](index.md) regenerated (28 tables, 2,503,863 total rows).
+Added a new **Recovery** entity section to
+[relationship.md](relationship.md) (no new spec-local key — joins on
+existing `user_id`/`application_id` plus `drop_step`/`channel`).
+
+**Risks carried forward, evidence from `out/04_abondon_checkout_recovery_2/
+justification.md` and `load_report.md`:**
+- **D2** — all 6 tables' `application_id` returned **0.0% overlap**
+  against `application_started` (`load_report.md`, 2026-08-02) — the same
+  STOP verdict as specs 01–03. Analyse standalone. New, not yet run:
+  `justification.md` flags that this spec's `user_id` (well-formed,
+  unlike its `application_id`) has **not** been overlap-checked against
+  the main funnel — the first join-integrity test this spec should get.
+- **D8** — confirmed not replicated; D9 casing collision noted as usual.
+- **D1** — no monotonicity/set-membership check has run on the 6-table
+  recovery chain; every step-through figure documented is a row-count
+  ratio from `profile.md`/`load_report.md`, not a verified join.
+- **K5 (WhatsApp nudge)** — updated from "unverifiable — not instrumented"
+  to "now instrumented, re-test pending": this spec's `channel` column and
+  `resumed_at_step` return event resolve both of K5's original blockers.
+  The re-test itself (a real query, not row-count ratios) has **not**
+  been run — no live DB access here, and `load_report.md` only ran the D2
+  check for this spec. The row-count-ratio picture in the meantime:
+  WhatsApp leads on open rate (46.28%) but push edges it out on
+  end-to-end recovery-of-sent (4.66% vs. 4.34%; email lowest at 2.80%) —
+  see [reminder_sent.md](tables/reminder_sent.md).
+
+**No `analysis/qNN.md` files exist yet for this spec** — the
+`analysis/` directory hasn't been created (question_extractor.py /
+Analysis Agent haven't run for spec 04 yet), so nothing to consolidate
+this pass. Once they exist, the first analyses to run are: (1) the K5
+re-test by real set-membership/monotonicity join, not row-count ratio;
+(2) the `user_id` overlap check against `application_started` flagged
+above.
+
+Evidence: `out/04_abondon_checkout_recovery_2/ddl.sql`,
+`out/04_abondon_checkout_recovery_2/justification.md`,
+`out/04_abondon_checkout_recovery_2/profile.md`,
+`out/04_abondon_checkout_recovery_2/load_report.md`.
+
 ## 2026-08-02 — Spec 03 (Visa Status Sharing) analysis consolidated
 
 Consolidated 4 PM-question answers (`out/03_status_sharing/analysis/q01.md`–

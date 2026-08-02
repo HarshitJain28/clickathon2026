@@ -23,6 +23,7 @@ Context Agent runs twice, not once, on purpose:
 
 Usage:
     python orchestrator.py <spec_dir> [--out-dir DIR] [--context-dir DIR]
+                           [--skip-instrumentation]
 
 <spec_dir> must contain spec.md and events.ndjson (e.g.
 ps/Atlys/specs/01_express_checkout). --out-dir defaults to
@@ -30,6 +31,13 @@ out/<spec_dir name> (e.g. out/01_express_checkout), matching this repo's
 existing out/ layout. The Question Extractor/Analysis Agent step writes into
 <out-dir>/analysis, one qNN.md (plus qNN_report.html when warranted) per PM
 question.
+
+--skip-instrumentation assumes ddl.sql/justification.md/profile.md already
+exist in --out-dir from a prior Instrumentation Agent run, and starts from
+the Loader instead. This is what lets a caller (e.g. the web UI) run the
+Instrumentation Agent alone first, hold for a human to review/approve the
+proposed schema, and only then continue the rest of the pipeline against
+the same output directory — the schema design is never re-run.
 
 The Loader step is generic across specs: it derives table/column names from
 ddl.sql and any required normalization/verification from justification.md's
@@ -74,22 +82,29 @@ def main():
         help="context wiki root passed through to the Context Agent "
         "(default: context/)",
     )
+    parser.add_argument(
+        "--skip-instrumentation",
+        action="store_true",
+        help="skip the Instrumentation Agent stage (ddl.sql/justification.md/"
+        "profile.md must already exist in --out-dir) and start from the Loader",
+    )
     args = parser.parse_args()
 
     spec_dir = args.spec_dir.resolve()
     out_dir = (args.out_dir or REPO_ROOT / "out" / spec_dir.name).resolve()
 
-    instrumentation_cmd = [
-        sys.executable,
-        str(INSTRUMENTATION_AGENT),
-        str(spec_dir),
-        "--out-dir",
-        str(out_dir),
-    ]
-    result = subprocess.run(instrumentation_cmd)
-    if result.returncode != 0:
-        print("error: instrumentation_agent.py failed", file=sys.stderr)
-        return result.returncode
+    if not args.skip_instrumentation:
+        instrumentation_cmd = [
+            sys.executable,
+            str(INSTRUMENTATION_AGENT),
+            str(spec_dir),
+            "--out-dir",
+            str(out_dir),
+        ]
+        result = subprocess.run(instrumentation_cmd)
+        if result.returncode != 0:
+            print("error: instrumentation_agent.py failed", file=sys.stderr)
+            return result.returncode
 
     loader_cmd = [
         sys.executable,

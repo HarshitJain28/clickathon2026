@@ -81,6 +81,31 @@
           <summary>Show raw log</summary>
           <pre id="onboardRawLog" class="log-box"></pre>
         </details>
+
+        <div id="approvalPanel" class="approval-panel" style="display:none;">
+          <h3>🔎 Review the proposed schema</h3>
+          <p class="muted">
+            The Instrumentation Agent designed this DDL from your spec — it
+            hasn't been run against ClickHouse yet. Review it, then approve to
+            let the Loader create these tables and continue the pipeline, or
+            reject to stop here.
+          </p>
+          <div class="approval-columns">
+            <div class="approval-col">
+              <div class="approval-col-label">ddl.sql — the schema</div>
+              <pre id="approvalDdl" class="log-box approval-code"></pre>
+            </div>
+            <div class="approval-col">
+              <div class="approval-col-label">justification.md — what it means, and why</div>
+              <div id="approvalJustification" class="approval-justification content"></div>
+            </div>
+          </div>
+          <div class="approval-actions">
+            <button id="approveBtn" class="run-btn approve-btn" type="button">✅ Approve &amp; continue</button>
+            <button id="rejectBtn" class="run-btn reject-btn" type="button">✕ Reject &amp; stop</button>
+          </div>
+        </div>
+
         <div id="onboardResults" class="onboard-results"></div>
 
         <button id="backToChatBtn" class="back-btn" type="button">← Back to chat</button>

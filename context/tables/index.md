@@ -3,19 +3,20 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for the 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding
 last_verified: 2026-08-02
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
 # Tables
 
-Twenty-two event tables in `clickathon`: 8 baseline tables + 5 from spec 01
-(Express Checkout) + 4 from spec 02 (Group / Family Applications) + 5 from
-spec 03 (Visa Status Sharing). **No views or materialized views exist.** The
-8 baseline tables share the 30-column envelope defined below; the 14 spec
-tables each use a smaller subset of it (see each page). Every page covers
-only its own event-specific columns.
+Twenty-eight event tables in `clickathon`: 8 baseline tables + 5 from spec
+01 (Express Checkout) + 4 from spec 02 (Group / Family Applications) + 5
+from spec 03 (Visa Status Sharing) + 6 from spec 04 (Abandoned Checkout
+Recovery). **No views or materialized views exist.** The 8 baseline tables
+share the 30-column envelope defined below; the 20 spec tables each use a
+smaller subset of it (see each page). Every page covers only its own
+event-specific columns.
 
 | Table | Role | Rows | Users | Step-through |
 |---|---|---:|---:|---:|
@@ -41,6 +42,12 @@ only its own event-specific columns.
 | [link_generated](link_generated.md) | share flow | 1,144 | 1,144 | n/a§ |
 | [link_opened](link_opened.md) | share flow (recipient) | 2,310 | n/a†† | n/a§ |
 | [recipient_cta_clicked](recipient_cta_clicked.md) | **share K-factor** | 305 | n/a†† | 13.2%§ |
+| [abandonment_detected](abandonment_detected.md) | recovery flow (origin) | 2,300 | 2,300 | — |
+| [reminder_sent](reminder_sent.md) | recovery flow (nudge) | 2,300 | 2,300 | 100%‖ |
+| [reminder_opened](reminder_opened.md) | recovery flow (nudge) | 690 | 690 | 30.00%‖ |
+| [reminder_cta_clicked](reminder_cta_clicked.md) | recovery flow (nudge) | 268 | 268 | 38.84%‖ |
+| [resumed_at_step](resumed_at_step.md) | recovery flow (return) | 268 | 268 | 100%‖ |
+| [reconverted](reconverted.md) | **recovery conversion** | 93 | 93 | 34.70%‖ (**4.04%** overall vs. `abandonment_detected`) |
 
 `††` `link_opened`/`recipient_cta_clicked` carry **no `user_id` column at
 all** (recipient-side, per D6 — the constraint doesn't apply since there's
@@ -110,11 +117,68 @@ row-count ratio — see each table's page. ⚠ All 5 Express Checkout tables'
 verify, `load_report.md`, re-confirmed independently by `analysis/q01.md`–
 `q04.md`) — they do not join to the main funnel; treat as a standalone flow.
 
-**Total: 2,497,944 rows** (2,480,481 baseline + 5,507 Express Checkout +
-5,453 Group/Family + 6,503 Status Sharing). Data window: 2025-12-31 23:41 →
-2026-07-01 03:01 (baseline); Express Checkout sample: 2026-06-08 →
-2026-06-28; Group/Family sample: 2026-06-08 → 2026-06-28; Status Sharing
-sample: 2026-06-08 06:00 → 2026-07-01 09:21 (per profile.md).
+`‖` Spec 04 (Abandoned Checkout Recovery) step-through figures were
+originally **unverified row-count ratios** from `profile.md`/
+`load_report.md`. **2026-08-02 update:** most are now **verified** by the
+Analysis Agent's live set-membership joins
+(`out/04_checkout_recovery_3/analysis/q01.md`–`q04.md`) — the headline PM
+metric (overall recovery rate, `reconverted` ÷ `abandonment_detected` =
+93/2,300 = **4.04%**), its breakdown by `drop_step` (flat 4.45%–4.80% for
+the first 3 steps, worst at 2.62% for `destination_card_clicked`), and the
+`reminder_sent → reminder_opened → reminder_cta_clicked → reconverted`
+chain (channel + timing cuts) are all confirmed by direct `user_id` joins,
+not ratios. **Still unverified:** the `abandonment_detected → reminder_sent`
+step and the `resumed_at_step` leg specifically (every joined query so far
+skips straight from `reminder_cta_clicked`/`reminder_sent` to
+`reconverted`) — see [resumed_at_step.md](resumed_at_step.md). This was
+also the re-test material for [known_issues.md](../known_issues.md) → K5
+(WhatsApp nudge): **now re-tested** — WhatsApp opens best (46.28%) but
+**push** wins end-to-end recovery-of-sent (4.66% vs. 4.34%), so K5's
+"WhatsApp nudge" claim is only partially confirmed. See
+[metrics/recovery_rate.md](../metrics/recovery_rate.md). ⚠ All 6
+Abandoned Checkout Recovery tables' `application_id` returned **0%
+overlap** against `application_started` (D2 verify, `load_report.md`,
+2026-08-02) — same STOP verdict as specs 01–03; treat as a standalone
+flow. `justification.md` also flags that this spec's `user_id` (unlike
+its `application_id`) is well-formed and has **still not** been overlap-
+checked against the main funnel — none of `analysis/q01.md`–`q04.md`
+performed that check either. A newly confirmed finding
+(`analysis/q04.md`): recovery flags are **not** targeting the real
+funnel's actual worst drop-offs — the two biggest real leaks (845,587 and
+133,967 lost users) get flagged at only 0.08%/0.39%, while the two
+smaller late-stage leaks get flagged at 12.2%/5.2% — see
+[abandonment_detected.md](abandonment_detected.md).
+
+⚠ **2026-08-02 — spec 04 resubmitted under a new output directory,
+`out/04_checkout_recovery_3`.** `ddl.sql` uses `CREATE TABLE IF NOT
+EXISTS` (no new tables created — the 28-table count above is unchanged),
+and its `load_report.md` reports **byte-identical** row counts and D2
+verdicts to the original load for all 6 tables. Whether this resubmission
+also re-inserted the same rows a second time (silently doubling each
+table's true live count, and with it the totals below) was an open
+question needing a live query to settle.
+
+**Resolved 2026-08-02 (source: `out/04_checkout_recovery_3/analysis/
+q01.md`–`q04.md`).** All 4 files independently ran live
+`count()`/`uniqExact(user_id)` queries against these 6 tables and got
+figures matching the documented row counts exactly (2,300/2,300/690/268/
+268/93) — **no duplication occurred**. `q02.md` explicitly re-checked all
+6 tables at once; `q01.md`/`q04.md` independently re-confirmed
+`abandonment_detected`/`reconverted`; `q03.md` independently re-confirmed
+`reminder_sent`. See [known_issues.md](../known_issues.md) → D2 and
+[abandonment_detected.md](abandonment_detected.md) for the full
+reasoning. The row counts in the table above and the totals below are now
+**confirmed**, not merely unverified-against-duplication.
+
+**Total: 2,503,863 rows** (2,480,481 baseline + 5,507 Express Checkout +
+5,453 Group/Family + 6,503 Status Sharing + 5,919 Abandoned Checkout
+Recovery, per `out/04_abondon_checkout_recovery_2/load_report.md`,
+confirmed non-duplicated by `out/04_checkout_recovery_3/analysis/q01.md`–
+`q04.md`, 2026-08-02). Data window: 2025-12-31 23:41 → 2026-07-01 03:01
+(baseline); Express Checkout sample: 2026-06-08 → 2026-06-28; Group/Family
+sample: 2026-06-08 → 2026-06-28; Status Sharing sample: 2026-06-08 06:00 →
+2026-07-01 09:21; Abandoned Checkout Recovery sample: 2026-06-08 06:01 →
+2026-07-01 00:00 (per profile.md).
 
 ---
 
@@ -185,6 +249,17 @@ user_id, id)`; the 2 recipient-side tables (no `user_id`) →
 `(toDate(timestamp), channel, share_id, id)` and `(toDate(timestamp),
 destination, share_id, id)` respectively. See
 [share_clicked](share_clicked.md) and its 4 sibling pages.
+
+**The 6 Abandoned Checkout Recovery tables (spec 04) also follow D8, split
+between two leading discriminators.** `ENGINE = MergeTree` throughout;
+`abandonment_detected`/`resumed_at_step`/`reconverted` →
+`(toDate(timestamp), drop_step, user_id, id)` (keyed by the funnel step
+dropped from/returned to — the natural join key across the
+numerator/denominator pair); `reminder_sent`/`reminder_opened`/
+`reminder_cta_clicked` → `(toDate(timestamp), channel, user_id, id)`
+(keyed by nudge channel — the PM's "which channel recovers best"
+question). See [abandonment_detected](abandonment_detected.md) and its 5
+sibling pages.
 
 ## Two corrections to base_context's table model
 
