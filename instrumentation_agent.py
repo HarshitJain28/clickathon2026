@@ -133,66 +133,61 @@ nullability — cite the specific profiler statistic (presence %, null %,
 distinct count, uniqueness ratio, numeric range, sampled value lengths, or the
 low_cardinality hint) that justifies each choice.
 
-## Reading policy — index-first, open pages only on match
+## Reading policy — everything unconditionally required is preloaded
 
-`{CONTEXT_DIR / 'index.md'}`, `{CONTEXT_DIR / 'tables' / 'index.md'}`, and
-`{CONTEXT_DIR / 'metrics' / 'index.md'}` are reloaded in your prompt below —
-do not Read them again. They are your map: orientation, the shared
-30-column envelope already used by the 8 existing raw event tables and their
-physical layout (`ENGINE`, `PARTITION BY`, `ORDER BY`), and the existing
-reusable metric definitions. The ground rule from the preloaded root index
-still applies: the live DB wins over `base_context.md` on data facts.
+Every file you need on every single run is already preloaded below, in
+clearly delimited blocks — do NOT `Read` any of them again, there is nothing
+left to fetch for these:
 
-Open a full wiki page with `Read` ONLY when at least one of these holds:
-
-1. Its index line names a table, column, entity, metric, or issue that this
-   spec's events actually touch.
-2. You need it to make a specific design call (e.g. an existing table's page
-   for any table your spec's events might extend — these pages sometimes
-   state an explicit instrumentation instruction such as "should be
-   instrumented consistently with [existing add-on columns]"; that sentence
-   is a direct design instruction, not background color — follow it. Or a
-   metric page whose formula an MV you're proposing should pre-compute).
-3. A page you already opened links to it and the link is load-bearing for a
-   decision you're making.
-
-Never open every page in a directory "for completeness" — the indexes exist
-precisely so you don't have to. Specifically:
-
+- `{CONTEXT_DIR / 'index.md'}` — orientation, directory map, and the ground
+  rule that the live DB wins over `base_context.md` on data facts.
+- `{CONTEXT_DIR / 'tables' / 'index.md'}` — the shared 30-column envelope
+  already used by the 8 existing raw event tables, and their physical layout
+  (`ENGINE`, `PARTITION BY`, `ORDER BY`).
+- `{CONTEXT_DIR / 'metrics' / 'index.md'}` — the existing reusable metric
+  definitions (check here first for a formula to build any MV around before
+  inventing a new aggregation shape).
+- `{CONTEXT_DIR / 'known_issues.md'}` — data traps and known-issue verdicts.
+  Whatever it marks as a mandatory constraint (a required normalization, a
+  required pre-deployment check, a sort-key anti-pattern to avoid, etc.)
+  applies to every table you design — treat it as non-negotiable and cite
+  the specific entry by its own identifier in justification.md.
+- `{CONTEXT_DIR / 'relationship.md'}` — entities, join map, and key formats.
+  Check whether this spec introduces an entity or column that conflicts with
+  or duplicates something already documented here before creating a
+  parallel model, and cite the specific section that applies.
 - `{BASE_DATA_DIR / 'ddl.sql'}` and `{BASE_DATA_DIR / 'instrumentation_notes.md'}`
-  — always read in full, every run (not part of the wiki, so not preloaded).
-  This is the actual production DDL of the 8 existing tables and how each is
-  populated — ground truth for two things:
+  — the actual production DDL of the 8 existing tables and how each is
+  populated. Ground truth for two things:
   - **Column style baseline**: the real tables use plain `String` /
     `Nullable(String)` throughout — no `LowCardinality`, no `Enum`, no
     `FixedString` anywhere. When you improve on this for a *new* table,
     that's a deliberate upgrade you must justify against the skill's rules
     (see "String-type decision" below), not an unexamined default.
-  - **CREATE vs ALTER candidates**: read every existing table's column list
-    so you can recognize when a spec's event is actually a new attribute of
-    an existing event rather than a new event stream (see next section).
-- `{CONTEXT_DIR / 'known_issues.md'}` — read this in full, every run (it's
-  short and mandatory-constraint-bearing, unlike the other wiki pages). It
-  documents data traps and known-issue verdicts, and the context wiki is
-  expected to keep growing, so nothing about its current contents is
-  hardcoded here. Whatever it marks as a mandatory constraint (a required
-  normalization, a required pre-deployment check, a sort-key anti-pattern to
-  avoid, etc.) applies to every table you design — treat it as
-  non-negotiable and cite the specific entry by its own identifier in
-  justification.md.
-- `{CONTEXT_DIR / 'relationship.md'}` — open only if this spec plausibly
-  introduces an entity or column that conflicts with or duplicates something
-  already documented there (check against the preloaded indexes' entity/
-  table names first); cite the specific section that applies.
-- Whatever the "Skills available" section below points you to — for
-  materialized views specifically, use it to decide whether an MV is
-  warranted at all, not just how to write one if you build one. Most single
-  raw-event tables need NO materialized view; only propose one if the
-  spec's "Questions the PM will ask" implies a repeated aggregation (e.g. a
-  funnel rate, an hourly/daily rollup, a segment breakdown computed on every
-  dashboard load) that would otherwise re-scan the raw table every query —
-  check the preloaded `metrics/index.md` first for a reusable definition to
-  build the MV around before inventing a new aggregation shape.
+  - **CREATE vs ALTER candidates**: every existing table's column list, so
+    you can recognize when a spec's event is actually a new attribute of an
+    existing event rather than a new event stream (see next section).
+- The spec's `spec.md` — what events exist, what fields they carry, what
+  questions the PM will ask (these hint at what a materialized view, if any,
+  should pre-compute, and sometimes at the CREATE-vs-ALTER call above).
+- The spec's `profile.md` — factual, deterministic statistics per event per
+  field: presence %, null %, JSON types seen, distinct count, distinct/present
+  uniqueness ratio, top values, numeric range, and the low_cardinality hint.
+
+Beyond those preloaded files, open a wiki page with `Read` ONLY when at
+least one of these holds — never scan a whole directory "for completeness",
+the indexes exist precisely so you don't have to:
+
+1. An existing table's own `{CONTEXT_DIR / 'tables'}/<name>.md` page, for
+   any table your spec's events might extend — these pages sometimes state
+   an explicit instrumentation instruction (e.g. "should be instrumented
+   consistently with [existing add-on columns]"). That sentence is a direct
+   design instruction, not background color — follow it.
+2. A specific `{CONTEXT_DIR / 'metrics'}/<name>.md` page whose formula an MV
+   you're proposing should pre-compute, once the preloaded metrics index
+   points you to it.
+3. A page you already opened (including a preloaded one) links to it and
+   the link is load-bearing for a decision you're making.
 
 {skills_section}
 
@@ -294,15 +289,6 @@ State this reasoning per column in justification.md — which of the 4 options
 you picked and the specific observed values or stat that ruled the others
 out.
 
-## What to read per spec (paths given to you in the user message)
-
-- The spec's `spec.md` — what events exist, what fields they carry, what
-  questions the PM will ask (these hint at what a materialized view, if
-  any, should pre-compute, and sometimes at the CREATE-vs-ALTER call above).
-- The spec's `profile.md` — factual, deterministic statistics per event per
-  field: presence %, null %, JSON types seen, distinct count, distinct/present
-  uniqueness ratio, top values, numeric range, and the low_cardinality hint.
-
 ## Output
 
 Write exactly two files into the given output directory:
@@ -382,41 +368,49 @@ def ensure_profile(spec_dir: Path, out_dir: Path) -> Path:
     return profile_path
 
 
-def _preload_wiki_files(context_dir: Path) -> str:
-    """Read the wiki's always-needed files and return them as clearly
-    delimited blocks to inline into the prompt, so the agent doesn't spend a
-    Read round-trip on files it needs on every single run."""
-    blocks = []
+def _preload_required_files(
+    context_dir: Path, base_data_dir: Path, spec_path: Path, profile_path: Path
+) -> str:
+    """Read every file this agent unconditionally needs, every run, and
+    return them as clearly delimited blocks to inline into the prompt, so
+    the agent doesn't spend Read round-trips (or Glob/Grep searching)
+    fetching things it always needs anyway."""
+    blocks = [
+        ("context/index.md", context_dir / "index.md"),
+        ("context/tables/index.md", context_dir / "tables" / "index.md"),
+        ("context/known_issues.md", context_dir / "known_issues.md"),
+        ("context/relationship.md", context_dir / "relationship.md"),
+        ("production ddl.sql", base_data_dir / "ddl.sql"),
+        ("instrumentation_notes.md", base_data_dir / "instrumentation_notes.md"),
+        ("spec.md", spec_path),
+        ("profile.md", profile_path),
+    ]
 
-    index_path = context_dir / "index.md"
-    blocks.append(f"### context/index.md\n{index_path.read_text(encoding='utf-8')}")
-
-    tables_index_path = context_dir / "tables" / "index.md"
-    blocks.append(
-        f"### context/tables/index.md\n{tables_index_path.read_text(encoding='utf-8')}"
-    )
-
+    rendered = []
     metrics_index_path = context_dir / "metrics" / "index.md"
     if metrics_index_path.exists():
-        blocks.append(
-            f"### context/metrics/index.md\n{metrics_index_path.read_text(encoding='utf-8')}"
-        )
+        blocks.insert(2, ("context/metrics/index.md", metrics_index_path))
 
-    return "## Preloaded wiki files — already provided, do NOT Read these again\n\n" + "\n\n".join(
-        blocks
+    for label, path in blocks:
+        rendered.append(f"### {label}\n{path.read_text(encoding='utf-8')}")
+
+    return "## Preloaded files — already provided, do NOT Read these again\n\n" + "\n\n".join(
+        rendered
     )
 
 
 def build_prompt(spec_path: Path, profile_path: Path, out_dir: Path) -> str:
     return f"""Design the ClickHouse DDL for this feature spec.
 
-- spec.md: {spec_path}
-- profile.md: {profile_path}
 - write ddl.sql and justification.md into: {out_dir}
 
-Follow the reading policy and output format from your system prompt.
+Follow the reading policy and output format from your system prompt. Every
+file you unconditionally need (the wiki's index.md/tables/index.md/
+known_issues.md/relationship.md[/metrics/index.md], the production ddl.sql
+and instrumentation_notes.md, this spec's spec.md, and its profile.md) is
+already preloaded below — do not Read, Glob, or Grep for any of them again.
 
-{_preload_wiki_files(CONTEXT_DIR)}
+{_preload_required_files(CONTEXT_DIR, BASE_DATA_DIR, spec_path, profile_path)}
 """
 
 
