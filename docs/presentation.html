@@ -1,0 +1,685 @@
+<title>Atlys · Click-a-thon 2026</title>
+<style>
+  :root {
+    --bg: #0e0f13;
+    --panel: #171922;
+    --panel-2: #1d2029;
+    --line: #2a2d38;
+    --text: #e9e7e0;
+    --muted: #9297a3;
+    --dim: #5a5f6c;
+    --yellow: #ffcc00;
+    --ember: #ff6a3d;
+    --teal: #4fd1c5;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f3ef;
+    --panel: #ffffff;
+    --panel-2: #ebe9e2;
+    --line: #d8d5cb;
+    --text: #17181c;
+    --muted: #55575e;
+    --dim: #8a8d94;
+    --yellow: #b88900;
+    --ember: #c94a1f;
+    --teal: #0f8f83;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f4f3ef;
+      --panel: #ffffff;
+      --panel-2: #ebe9e2;
+      --line: #d8d5cb;
+      --text: #17181c;
+      --muted: #55575e;
+      --dim: #8a8d94;
+      --yellow: #b88900;
+      --ember: #c94a1f;
+      --teal: #0f8f83;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+    height: 100%;
+  }
+  ::selection { background: var(--yellow); color: #0e0f13; }
+
+  .deck {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    transition: transform .55s cubic-bezier(.65,0,.35,1);
+  }
+  .slide {
+    flex: 0 0 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 6vh 8vw;
+    position: relative;
+    overflow: auto;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .78rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--yellow);
+    margin-bottom: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 22px; height: 1px;
+    background: var(--yellow);
+    display: inline-block;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(2.2rem, 5vw, 4rem);
+    line-height: 1.05;
+    letter-spacing: -.01em;
+    margin: 0 0 1rem 0;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 3.4vw, 2.6rem);
+    line-height: 1.12;
+    margin: 0 0 1.4rem 0;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+    color: var(--muted);
+    max-width: 60ch;
+    line-height: 1.55;
+  }
+  .accent-yellow { color: var(--yellow); }
+  .accent-ember { color: var(--ember); }
+  .accent-teal { color: var(--teal); }
+
+  /* ---- Slide 1: Title ---- */
+  #s1 { align-items: flex-start; }
+  .title-mark {
+    font-family: var(--mono);
+    font-size: .85rem;
+    color: var(--dim);
+    letter-spacing: .1em;
+    margin-bottom: 3rem;
+  }
+  .title-mark b { color: var(--yellow); font-weight: 700; }
+  .hero-title {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(3rem, 8vw, 6.4rem);
+    line-height: .98;
+    letter-spacing: -.02em;
+    margin: 0;
+  }
+  .hero-title .dim { color: var(--dim); }
+  .hero-tag {
+    margin-top: 1.6rem;
+    font-size: clamp(1.1rem, 2vw, 1.5rem);
+    color: var(--muted);
+    max-width: 46ch;
+  }
+  .hero-tag .cursor {
+    display: inline-block;
+    width: .55em; height: 1.05em;
+    background: var(--yellow);
+    vertical-align: text-bottom;
+    animation: blink 1.1s step-end infinite;
+    margin-left: .15em;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .hero-foot {
+    position: absolute;
+    bottom: 6vh; left: 8vw; right: 8vw;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--dim);
+    letter-spacing: .06em;
+    border-top: 1px solid var(--line);
+    padding-top: 1.2rem;
+  }
+
+  /* ---- Reusable: pill / tag ---- */
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .3rem .6rem;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--muted);
+  }
+
+  /* ---- Problem slide: quote block ---- */
+  .quote-block {
+    margin-top: 2.2rem;
+    border-left: 3px solid var(--ember);
+    padding: .9rem 1.6rem;
+    background: var(--panel);
+    font-family: var(--mono);
+    font-size: clamp(1rem, 1.7vw, 1.3rem);
+    color: var(--text);
+    max-width: 62ch;
+    line-height: 1.5;
+  }
+  .quote-block cite {
+    display: block;
+    margin-top: .7rem;
+    font-style: normal;
+    font-size: .78rem;
+    color: var(--dim);
+    letter-spacing: .05em;
+  }
+  .pain-row {
+    display: flex; gap: 1.2rem; margin-top: 2.4rem; flex-wrap: wrap;
+  }
+  .pain-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1.1rem 1.3rem;
+    max-width: 240px;
+  }
+  .pain-card .n { font-family: var(--mono); color: var(--ember); font-size: .85rem; margin-bottom: .4rem; }
+  .pain-card p { margin: 0; font-size: .92rem; color: var(--muted); line-height: 1.45; }
+
+  /* ---- Approach: 3-agent strip ---- */
+  .agent-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.1rem;
+    margin-top: 2.2rem;
+    max-width: 980px;
+  }
+  .agent-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--c);
+    border-radius: 6px;
+    padding: 1.3rem 1.2rem;
+  }
+  .agent-card .stage-no { font-family: var(--mono); font-size: .74rem; color: var(--c); letter-spacing: .08em; }
+  .agent-card h3 { font-family: var(--mono); font-size: 1.05rem; margin: .5rem 0 .5rem; color: var(--text); }
+  .agent-card p { margin: 0; font-size: .86rem; color: var(--muted); line-height: 1.45; }
+
+  /* ---- Stage 0 slide ---- */
+  .bootstrap-diagram {
+    display: flex; align-items: center; gap: 0; margin-top: 2.4rem;
+    font-family: var(--mono); font-size: .85rem;
+  }
+  .bd-node {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: .9rem 1.1rem; color: var(--muted); white-space: nowrap;
+  }
+  .bd-node.hot { border-color: var(--yellow); color: var(--yellow); }
+  .bd-arrow { color: var(--dim); padding: 0 .8rem; font-size: 1.1rem; }
+  .bd-wrap { display: flex; flex-wrap: wrap; gap: .9rem; align-items: center; }
+
+  /* ---- Flow compare ---- */
+  .flow-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin-top: 2.2rem; max-width: 980px;
+  }
+  .flow-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem;
+  }
+  .flow-card h4 {
+    font-family: var(--mono); margin: 0 0 1rem; font-size: 1rem;
+    color: var(--text); display: flex; align-items: center; gap: .5rem;
+  }
+  .flow-card .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .flow-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+  .flow-steps li {
+    font-size: .87rem; color: var(--muted); padding-left: 1.1rem; position: relative; line-height: 1.4;
+  }
+  .flow-steps li::before {
+    content: "→"; position: absolute; left: 0; color: var(--dim); font-family: var(--mono);
+  }
+
+  /* ---- Stage detail slides (1/2/3) ---- */
+  .stage-layout { display: flex; gap: 3.2rem; align-items: flex-start; margin-top: 1.6rem; flex-wrap: wrap; }
+  .stage-left { flex: 1 1 380px; min-width: 300px; }
+  .stage-right { flex: 1 1 340px; min-width: 300px; }
+  .file-list { display: flex; flex-direction: column; gap: .6rem; }
+  .file-item {
+    font-family: var(--mono); font-size: .84rem;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 5px;
+    padding: .55rem .8rem; color: var(--muted);
+    display: flex; align-items: center; gap: .6rem;
+  }
+  .file-item .dot { color: var(--c); }
+  .step-num-list { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  .step-num-list li {
+    counter-increment: step;
+    display: flex; gap: .9rem; padding: .6rem 0;
+    border-bottom: 1px solid var(--line);
+    font-size: .92rem; color: var(--muted); line-height: 1.4;
+  }
+  .step-num-list li:last-child { border-bottom: none; }
+  .step-num-list li::before {
+    content: counter(step);
+    font-family: var(--mono); color: var(--c); font-weight: 700;
+    flex: 0 0 auto; font-size: .85rem;
+    width: 1.4rem; height: 1.4rem; border: 1px solid var(--c); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* wiki tree */
+  .tree {
+    font-family: var(--mono); font-size: .86rem; color: var(--muted); line-height: 1.9;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+  }
+  .tree .dir { color: var(--teal); }
+  .tree .comment { color: var(--dim); }
+
+  /* pipeline (full) */
+  .pipeline {
+    display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: 2.4rem;
+  }
+  .pnode {
+    font-family: var(--mono); font-size: .78rem;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: .7rem .9rem; color: var(--text); text-align: center;
+  }
+  .pnode.small { color: var(--muted); font-size: .74rem; }
+  .parrow { color: var(--dim); font-size: 1rem; }
+  .ploop {
+    font-family: var(--mono); font-size: .68rem; color: var(--dim);
+    text-align: center; width: 100%; margin-top: -.3rem;
+  }
+
+  /* tech stack */
+  .stack-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 2.2rem; max-width: 1000px;
+  }
+  .stack-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1.1rem;
+  }
+  .stack-card .k { font-family: var(--mono); font-size: .68rem; letter-spacing: .07em; color: var(--dim); text-transform: uppercase; }
+  .stack-card .v { font-family: var(--mono); font-size: 1rem; color: var(--text); margin-top: .4rem; }
+
+  /* stretch goals */
+  .stretch-row { display: flex; flex-direction: column; gap: 1rem; margin-top: 2.2rem; max-width: 720px; }
+  .stretch-item {
+    display: flex; gap: 1.1rem; align-items: flex-start;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.2rem 1.4rem;
+  }
+  .stretch-item .tag { flex: 0 0 auto; }
+  .stretch-item p { margin: 0; font-size: .92rem; color: var(--muted); line-height: 1.5; }
+
+  /* closing */
+  #s12 { align-items: flex-start; justify-content: center; }
+  .close-title {
+    font-family: var(--mono); font-weight: 700;
+    font-size: clamp(2.4rem, 6vw, 4.6rem); margin: 0;
+  }
+  .close-sub { color: var(--muted); font-size: 1.1rem; margin-top: 1rem; max-width: 50ch; }
+  .close-links { display: flex; gap: 2rem; margin-top: 2.6rem; font-family: var(--mono); font-size: .85rem; }
+  .close-links span { color: var(--dim); }
+  .close-links b { color: var(--yellow); font-weight: 700; }
+
+  /* ---- Nav chrome ---- */
+  .rail {
+    position: fixed; bottom: 3vh; left: 50%; transform: translateX(-50%);
+    display: flex; gap: .5rem; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
+    padding: .5rem .7rem; border-radius: 20px; border: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+  }
+  .rail button {
+    width: 8px; height: 8px; border-radius: 50%; border: none;
+    background: var(--line); cursor: pointer; padding: 0; transition: background .2s, transform .2s;
+  }
+  .rail button.active { background: var(--yellow); transform: scale(1.3); }
+
+  .navbtn {
+    position: fixed; top: 50%; transform: translateY(-50%);
+    background: transparent; border: none; color: var(--dim);
+    font-family: var(--mono); font-size: 1.6rem; cursor: pointer; z-index: 20;
+    padding: 1rem .6rem; transition: color .2s;
+  }
+  .navbtn:hover { color: var(--yellow); }
+  .navbtn:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+  #prevBtn { left: 1vw; } #nextBtn { right: 1vw; }
+
+  .counter {
+    position: fixed; top: 4vh; right: 4vw; z-index: 20;
+    font-family: var(--mono); font-size: .78rem; color: var(--dim);
+    letter-spacing: .06em;
+  }
+  .counter b { color: var(--text); }
+
+  .progress {
+    position: fixed; top: 0; left: 0; height: 2px; background: var(--yellow);
+    z-index: 21; transition: width .5s cubic-bezier(.65,0,.35,1);
+  }
+
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .deck, .progress { transition: none; }
+    .hero-tag .cursor { animation: none; }
+  }
+
+  @media (max-width: 860px) {
+    .agent-strip { grid-template-columns: 1fr; }
+    .stack-grid { grid-template-columns: repeat(2, 1fr); }
+    .flow-grid { grid-template-columns: 1fr; }
+    .stage-layout { flex-direction: column; }
+    .navbtn { padding: .6rem .3rem; }
+  }
+</style>
+
+<div class="progress" id="progress"></div>
+<div class="counter"><b id="curNum">01</b> / <span id="totNum">12</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1: TITLE -->
+  <section class="slide" id="s1">
+    <div class="title-mark">CLICK-A-THON 2026 · <b>ATLYS</b> TRACK</div>
+    <h1 class="hero-title">Self-correcting<br>analytics <span class="dim">agents</span><br>on ClickHouse.</h1>
+    <p class="hero-tag">Three agents. One verified context wiki. Zero blind trust in the base context.<span class="cursor"></span></p>
+    <div class="hero-foot">
+      <span>ORCHESTRATOR.PY → INSTRUMENTATION → CONTEXT → ANALYSIS</span>
+      <span>TRACED WITH LANGFUSE</span>
+    </div>
+  </section>
+
+  <!-- 2: PROBLEM -->
+  <section class="slide" id="s2">
+    <div class="eyebrow">The Problem</div>
+    <h2>The context layer you're handed<br>is not the context layer you can trust.</h2>
+    <blockquote class="quote-block">
+      "Fair warning: the base context layer you receive is not perfect.<br>Treat it with suspicion."
+      <cite>— the challenge brief, on base_context.md</cite>
+    </blockquote>
+    <div class="pain-row">
+      <div class="pain-card"><div class="n">01</div><p>PMs wait on manual dashboards for answers that should be self-serve.</p></div>
+      <div class="pain-card"><div class="n">02</div><p>New event data ships faster than anyone updates the docs describing it.</p></div>
+      <div class="pain-card"><div class="n">03</div><p>Agents that trust stale context produce confident, wrong analysis.</p></div>
+    </div>
+  </section>
+
+  <!-- 3: APPROACH -->
+  <section class="slide" id="s3">
+    <div class="eyebrow">Our Approach</div>
+    <h2>Three agents, one wiki they all read from —<br>and one of them corrects it first.</h2>
+    <p class="lede">Every agent orients from <b class="accent-teal">context/</b>, never re-derives schema or join-safety facts on its own. Instrumentation writes to it, Context maintains it, Analysis reads from it.</p>
+    <div class="agent-strip">
+      <div class="agent-card" style="--c: var(--yellow)">
+        <div class="stage-no">STAGE 1</div>
+        <h3>Instrumentation Agent</h3>
+        <p>Spec + NDJSON sample → designed schema, human-in-the-loop, applied to ClickHouse.</p>
+      </div>
+      <div class="agent-card" style="--c: var(--ember)">
+        <div class="stage-no">STAGE 2</div>
+        <h3>Context Agent</h3>
+        <p>Keeps the wiki honest — tables, metrics, known issues, relationships. Runs twice per spec.</p>
+      </div>
+      <div class="agent-card" style="--c: var(--teal)">
+        <div class="stage-no">STAGE 3</div>
+        <h3>Analysis Agent</h3>
+        <p>Answers PM questions from the verified wiki, concurrently, one run per question.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4: STAGE 0 BOOTSTRAP -->
+  <section class="slide" id="s4">
+    <div class="eyebrow accent-yellow">Stage 0 · Runs before everything else</div>
+    <h2>Bootstrap: verify the base context<br>against what the data actually shows.</h2>
+    <p class="lede">A one-time run — repeated whenever new tables land — that uses the <b class="accent-yellow">ClickHouse MCP server</b> to check <span style="font-family:var(--mono)">base_context.md</span> against the real event tables, and produces a corrected context layer everything downstream builds on.</p>
+    <div class="bd-wrap bootstrap-diagram">
+      <div class="bd-node">base_context.md<br><span style="color:var(--dim)">(unverified)</span></div>
+      <div class="bd-arrow">＋</div>
+      <div class="bd-node hot">ClickHouse MCP<br>real event tables</div>
+      <div class="bd-arrow">→</div>
+      <div class="bd-node hot">corrected context/</div>
+      <div class="bd-arrow">→</div>
+      <div class="bd-node">Stage 1–3</div>
+    </div>
+  </section>
+
+  <!-- 5: FLOW 1 vs FLOW 2 -->
+  <section class="slide" id="s5">
+    <div class="eyebrow">Two Ways In</div>
+    <h2>A build-time pipeline, and a runtime ask.</h2>
+    <div class="flow-grid">
+      <div class="flow-card">
+        <h4><span class="dot" style="background:var(--yellow)"></span> Flow 1 — Instrument new data</h4>
+        <ul class="flow-steps">
+          <li>Upload spec.md + events.ndjson</li>
+          <li>Instrumentation Agent (human-in-the-loop)</li>
+          <li>Context Agent publishes schema + caveats</li>
+          <li>Analysis Agent answers the spec's PM questions</li>
+        </ul>
+      </div>
+      <div class="flow-card">
+        <h4><span class="dot" style="background:var(--teal)"></span> Flow 2 — Ask a question</h4>
+        <ul class="flow-steps">
+          <li>PM opens the app</li>
+          <li>Asks a question in plain language</li>
+          <li>Analysis Agent orients from the wiki</li>
+          <li>Gets a grounded response back</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6: STAGE 1 DETAIL -->
+  <section class="slide" id="s6">
+    <div class="eyebrow" style="color:var(--yellow)">Stage 1</div>
+    <h2>Instrumentation Agent</h2>
+    <div class="stage-layout">
+      <div class="stage-left">
+        <ol class="step-num-list" style="--c: var(--yellow)">
+          <li>Read the context layer — understand entities and existing conventions first</li>
+          <li>Load ClickHouse schema-design skills/tooling</li>
+          <li>Design + apply the schema from spec + raw NDJSON (human-in-the-loop)</li>
+          <li>Verify the table was created and data inserted correctly</li>
+          <li>Record the change as a durable, reviewable file</li>
+        </ol>
+      </div>
+      <div class="stage-right">
+        <div class="file-list">
+          <div class="file-item"><span class="dot" style="--c:var(--yellow)">●</span> ddl.sql</div>
+          <div class="file-item"><span class="dot" style="--c:var(--yellow)">●</span> justification.md</div>
+          <div class="file-item"><span class="dot" style="--c:var(--yellow)">●</span> profile.md</div>
+          <div class="file-item"><span class="dot" style="--c:var(--yellow)">●</span> load_report.md</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7: STAGE 2 DETAIL -->
+  <section class="slide" id="s7">
+    <div class="eyebrow" style="color:var(--ember)">Stage 2</div>
+    <h2>Context Agent — the wiki</h2>
+    <div class="stage-layout">
+      <div class="stage-left">
+        <div class="tree">context/<br>
+├── <span class="dir">index.md</span> <span class="comment">— entry point</span><br>
+├── business.md <span class="comment">— north-star metric, funnel</span><br>
+├── <span class="dir">tables/</span> <span class="comment">— one file per table</span><br>
+├── <span class="dir">metrics/</span> <span class="comment">— one file per metric</span><br>
+├── <span class="dir">known-issues/</span> <span class="comment">— quirks, broken joins</span><br>
+└── relationship.md <span class="comment">— join map</span>
+        </div>
+      </div>
+      <div class="stage-right">
+        <p class="lede" style="margin-top:0">One file per concern, not one giant doc — diffs stay readable, agents update a single page instead of rewriting everything.</p>
+        <p class="lede"><b class="accent-ember">Runs twice per spec:</b> Pass 1 publishes new schema/known-issues <i>before</i> Analysis runs, so it has facts to orient from. Pass 2 consolidates every finding after Analysis finishes — the single writer, so nothing races.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8: STAGE 3 DETAIL -->
+  <section class="slide" id="s8">
+    <div class="eyebrow" style="color:var(--teal)">Stage 3</div>
+    <h2>Analysis Agent</h2>
+    <div class="stage-layout">
+      <div class="stage-left">
+        <ol class="step-num-list" style="--c: var(--teal)">
+          <li>Reads the context layer, the spec, and the PM's questions</li>
+          <li>Runs once per question, all concurrently, read-only against context/</li>
+          <li>Produces a report grounded in verified schema and known issues</li>
+        </ol>
+      </div>
+      <div class="stage-right">
+        <div class="file-list">
+          <div class="file-item"><span class="dot" style="--c:var(--teal)">●</span> analysis/q01.md</div>
+          <div class="file-item"><span class="dot" style="--c:var(--teal)">●</span> analysis/q02.md</div>
+          <div class="file-item"><span class="dot" style="--c:var(--teal)">●</span> analysis/q02_report.html</div>
+          <div class="file-item"><span class="dot" style="--c:var(--teal)">●</span> analysis/qNN.md …</div>
+        </div>
+        <p class="lede" style="margin-top:1.2rem; font-size:.88rem">Concurrent and read-only on purpose — nothing writes to the wiki mid-flight.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9: FULL PIPELINE -->
+  <section class="slide" id="s9">
+    <div class="eyebrow">End to End</div>
+    <h2>What orchestrator.py actually runs</h2>
+    <div class="pipeline">
+      <div class="pnode">spec.md<br><span class="small">events.ndjson</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--yellow)">Instrumentation<br><span class="small">ddl · justification · profile</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode">Loader<br><span class="small">creates + loads tables</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--ember)">Context<br><span class="small">pass 1</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--teal)">Analysis<br><span class="small">× N questions, concurrent</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--ember)">Context<br><span class="small">pass 2, consolidate</span></div>
+      <div class="ploop">every step traced in Langfuse</div>
+    </div>
+  </section>
+
+  <!-- 10: TECH STACK -->
+  <section class="slide" id="s10">
+    <div class="eyebrow">Under the Hood</div>
+    <h2>Tech stack</h2>
+    <div class="stack-grid">
+      <div class="stack-card"><div class="k">Database</div><div class="v">ClickHouse</div></div>
+      <div class="stack-card"><div class="k">Ground truth access</div><div class="v">ClickHouse MCP</div></div>
+      <div class="stack-card"><div class="k">Tracing</div><div class="v">Langfuse</div></div>
+      <div class="stack-card"><div class="k">Agents</div><div class="v">Claude</div></div>
+      <div class="stack-card"><div class="k">Pipeline</div><div class="v">Python</div></div>
+      <div class="stack-card"><div class="k">Context store</div><div class="v">Markdown wiki</div></div>
+      <div class="stack-card"><div class="k">Concurrency</div><div class="v">Per-question Analysis runs</div></div>
+      <div class="stack-card"><div class="k">Interface</div><div class="v">Web UI</div></div>
+    </div>
+  </section>
+
+  <!-- 11: STRETCH -->
+  <section class="slide" id="s11">
+    <div class="eyebrow">If Time Permits</div>
+    <h2>Where this goes next</h2>
+    <div class="stretch-row">
+      <div class="stretch-item">
+        <span class="tag" style="color:var(--yellow); border-color:var(--yellow)">Self-learning</span>
+        <p>Track the most-asked PM questions and have the Instrumentation Agent create materialized views for them automatically — faster answers over time, without being asked.</p>
+      </div>
+      <div class="stretch-item">
+        <span class="tag" style="color:var(--teal); border-color:var(--teal)">Agent-to-agent</span>
+        <p>Direct agent-to-agent communication instead of file handoffs — visible end-to-end in Langfuse traces.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12: CLOSING -->
+  <section class="slide" id="s12">
+    <div class="eyebrow">Thank You</div>
+    <h1 class="close-title">Context you can<br><span class="accent-yellow">trust</span>, not just <span class="accent-ember">read</span>.</h1>
+    <p class="close-sub">A bootstrap that corrects the record, three agents that build on it, and a wiki that never falls behind the data.</p>
+    <div class="close-links">
+      <span>TEAM <b>ATLYS</b></span>
+      <span>CLICK-A-THON 2026</span>
+      <span>ORCHESTRATOR.PY</span>
+    </div>
+  </section>
+
+</div>
+
+<button class="navbtn" id="prevBtn" aria-label="Previous slide">‹</button>
+<button class="navbtn" id="nextBtn" aria-label="Next slide">›</button>
+<div class="rail" id="rail"></div>
+
+<script>
+  const deck = document.getElementById('deck');
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  const rail = document.getElementById('rail');
+  const progress = document.getElementById('progress');
+  const curNum = document.getElementById('curNum');
+  document.getElementById('totNum').textContent = String(total).padStart(2, '0');
+
+  let idx = 0;
+
+  slides.forEach((_, i) => {
+    const b = document.createElement('button');
+    b.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+    b.addEventListener('click', () => go(i));
+    rail.appendChild(b);
+  });
+  const dots = Array.from(rail.children);
+
+  function render() {
+    deck.style.transform = `translateX(-${idx * 100}vw)`;
+    dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+    progress.style.width = ((idx + 1) / total * 100) + '%';
+    curNum.textContent = String(idx + 1).padStart(2, '0');
+  }
+
+  function go(i) {
+    idx = Math.max(0, Math.min(total - 1, i));
+    render();
+  }
+
+  document.getElementById('prevBtn').addEventListener('click', () => go(idx - 1));
+  document.getElementById('nextBtn').addEventListener('click', () => go(idx + 1));
+
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); go(idx + 1); }
+    if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); go(idx - 1); }
+    if (e.key === 'Home') go(0);
+    if (e.key === 'End') go(total - 1);
+  });
+
+  let touchX = null;
+  window.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; });
+  window.addEventListener('touchend', (e) => {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 50) go(idx + (dx < 0 ? 1 : -1));
+    touchX = null;
+  });
+
+  render();
+</script>
