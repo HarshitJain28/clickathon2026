@@ -3,7 +3,7 @@ id: metrics.index
 kind: index
 status: verified
 confidence: high
-source: derived from frontmatter of metrics/*.md; out/04_checkout_recovery_3/analysis/q01.md–q03.md — recovery_rate; out/05_instant_forex/analysis/q01.md, q03.md, q04.md — forex_attach_rate; out/05_instant_forex/analysis/q02.md — forex_addon_aov
+source: derived from frontmatter of metrics/*.md; out/04_checkout_recovery_3/analysis/q01.md–q03.md — recovery_rate; out/05_instant_forex/analysis/q01.md, q03.md, q04.md — forex_attach_rate; out/05_instant_forex/analysis/q02.md — forex_addon_aov; out/06_unseen_spec_2/analysis/q01.md, q04.md — coupon_apply_rate; out/06_unseen_spec_2/analysis/q02.md — coupon_conversion_lift
 last_verified: 2026-08-02
 links: [doc.index, pattern.funnel_computation]
 ---
@@ -29,6 +29,8 @@ H1 2026 (2026-01-01 → 2026-07-01).
 | [recovery_rate](recovery_rate.md) | 4.04% overall, 2.62%–4.80% by drop_step, push best by channel (4.66%) | verified | high |
 | [forex_attach_rate](forex_attach_rate.md) | 18.83% overall, 13.78%–24.58% by destination | verified | high |
 | [forex_addon_aov](forex_addon_aov.md) | median ₹31,685 / mean ₹40,587.77 (INR only) | verified | medium |
+| [coupon_apply_rate](coupon_apply_rate.md) | 27.62% overall, EXPIRED5 0% every segment | verified | high |
+| [coupon_conversion_lift](coupon_conversion_lift.md) | **reversed**: 43.16% coupon-entering vs 49.60% no-coupon baseline | verified | medium |
 
 ## Three rules for reporting any of these
 

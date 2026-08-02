@@ -3,20 +3,21 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for the 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding; out/05_instant_forex/load_report.md — rows loaded and D2 overlap_pct for the 5 Instant Forex tables; out/05_instant_forex/analysis/q01.md–q04.md — verified full-funnel set-membership step-through, attach rate by destination/currency/device/geo, AOV
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for the 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding; out/05_instant_forex/load_report.md — rows loaded and D2 overlap_pct for the 5 Instant Forex tables; out/05_instant_forex/analysis/q01.md–q04.md — verified full-funnel set-membership step-through, attach rate by destination/currency/device/geo, AOV; out/06_unseen_spec_2/load_report.md — rows loaded and D2 overlap_pct for the 6 Promo/Coupon tables; out/06_unseen_spec_2/analysis/q01.md–q04.md — verified apply rate/reject-reason partition, reversed conversion lift, per-code margin cost, segment cuts
 last_verified: 2026-08-02
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
 # Tables
 
-Thirty-three event tables in `clickathon`: 8 baseline tables + 5 from spec
+Thirty-nine event tables in `clickathon`: 8 baseline tables + 5 from spec
 01 (Express Checkout) + 4 from spec 02 (Group / Family Applications) + 5
 from spec 03 (Visa Status Sharing) + 6 from spec 04 (Abandoned Checkout
-Recovery) + 5 from spec 05 (Instant Forex Add-on). **No views or
-materialized views exist.** The 8 baseline tables share the 30-column
-envelope defined below; the 25 spec tables each use a smaller subset of it
-(see each page). Every page covers only its own event-specific columns.
+Recovery) + 5 from spec 05 (Instant Forex Add-on) + 6 from spec 06 (Promo /
+Coupon at Checkout). **No views or materialized views exist.** The 8
+baseline tables share the 30-column envelope defined below; the 31 spec
+tables each use a smaller subset of it (see each page). Every page covers
+only its own event-specific columns.
 
 | Table | Role | Rows | Users | Step-through |
 |---|---|---:|---:|---:|
@@ -53,6 +54,12 @@ envelope defined below; the 25 spec tables each use a smaller subset of it
 | [amount_entered](amount_entered.md) | forex flow | 1,033 | 1,033 | 100%¶ |
 | [forex_added_to_cart](forex_added_to_cart.md) | forex flow | 725 | 725 | 70.18%¶ |
 | [forex_purchased](forex_purchased.md) | **forex conversion** | 546 | 546 | 75.31%¶ (**18.83%** overall vs. `forex_offer_shown`) |
+| [coupon_field_shown](coupon_field_shown.md) | coupon flow (origin) | 2,100 | 2,100 | — |
+| [coupon_entered](coupon_entered.md) | coupon flow | 848 | 848 | **40.38%**✦ |
+| [coupon_applied](coupon_applied.md) | coupon flow (success) | 580 | 580 | **68.40%**✦ |
+| [coupon_rejected](coupon_rejected.md) | coupon flow (failure) | 268 | 268 | **31.60%**✦ |
+| [discount_shown](discount_shown.md) | coupon flow | 580 | 580 | 100%✦ (unverified) |
+| [checkout_with_coupon](checkout_with_coupon.md) | **coupon conversion** | 987 | 987 | 37.1% w/ coupon✦ (**reversed lift**) |
 
 `¶` Spec 05 (Instant Forex Add-on) step-through figures were originally
 **unverified row-count ratios** from `profile.md`/`load_report.md`.
@@ -83,6 +90,48 @@ of which found a working `application_id` path) — same STOP verdict as
 specs 01–04; treat as a standalone flow, not joinable to the main funnel.
 See [forex_offer_shown.md](forex_offer_shown.md) and its 4 sibling
 pages.
+
+`✦` Spec 06 (Promo / Coupon at Checkout, sealed/unseen) step-through
+figures were originally **unverified row-count ratios** from
+`profile.md`/`load_report.md`. **2026-08-02 update:** the first analysis
+run for this spec (`out/06_unseen_spec_2/analysis/q01.md`–`q04.md`) now
+**verifies** the `coupon_field_shown → coupon_entered → coupon_applied`/
+`coupon_rejected` chain by set-membership join on `user_id` —
+`coupon_applied` (580) + `coupon_rejected` (268) = 848 is a **confirmed**
+exact, non-overlapping partition of `coupon_entered`'s users (`q01.md`),
+not merely a row-count coincidence; overall apply rate (`coupon_applied`
+÷ `coupon_field_shown`) is **27.62%** — see
+[metrics/coupon_apply_rate.md](../metrics/coupon_apply_rate.md). Top
+reject reasons are also verified: `min_cart_not_met` (29.85%) and
+`already_used` (27.99%) lead, all four reasons within a ~10pp band.
+**Still unverified:** `coupon_applied` and `discount_shown` share an
+identical row count (580) and identical per-field breakdowns in
+`profile.md` — flagged as a likely 1:1 pairing (the same shape spec 03's
+`channel_selected`/`link_generated` and spec 05's
+`currency_selected`/`amount_entered` turned out to be) — but none of
+q01–q04 joined this table directly, so it remains unconfirmed; see
+[discount_shown.md](discount_shown.md). The PM's headline
+conversion-lift question **is now computed, and reversed**:
+`checkout_with_coupon`'s 987 rows split into 366 coupon-entering users
+(43.16% of the 848 who entered a code) vs. 621 no-coupon-baseline users
+(49.60% of the 1,252 who never did) — the no-coupon baseline converts
+~6.4pp **higher**, driven by coupon-rejection being a hard stop (100% of
+268 rejected users never reach checkout) — see
+[metrics/coupon_conversion_lift.md](../metrics/coupon_conversion_lift.md).
+Per-code margin cost (`q03.md`) shows SUMMER20 as the top cost driver on
+both volume and total discount (INR: 82 uses, ₹87,088), FREESHIP
+recording ₹0 discount on every use, and a reconciliation gap between
+`coupon_applied`'s and `checkout_with_coupon`'s own `discount_amount` for
+the same codes — see [coupon_applied.md](coupon_applied.md). Segment cuts
+(`q04.md`) confirm `EXPIRED5` fails 100% of the time in every
+device/geo/destination cut, and India dominates volume with 78–91%
+success for the 5 live codes. ⚠ All 6 Promo/Coupon tables'
+`application_id` returned **0% overlap** against `application_started`
+(D2 verify, `load_report.md`, 2026-08-02, independently re-confirmed by
+all 4 of `analysis/q01.md`–`q04.md`, none of which found a working
+`application_id` path) — same STOP verdict as specs 01–05; treat as a
+standalone flow, not joinable to the main funnel. See
+[coupon_field_shown.md](coupon_field_shown.md) and its 5 sibling pages.
 
 `††` `link_opened`/`recipient_cta_clicked` carry **no `user_id` column at
 all** (recipient-side, per D6 — the constraint doesn't apply since there's
@@ -205,19 +254,27 @@ figures matching the documented row counts exactly (2,300/2,300/690/268/
 reasoning. The row counts in the table above and the totals below are now
 **confirmed**, not merely unverified-against-duplication.
 
-**Total: 2,510,100 rows** (2,480,481 baseline + 5,507 Express Checkout +
+**Total: 2,515,463 rows** (2,480,481 baseline + 5,507 Express Checkout +
 5,453 Group/Family + 6,503 Status Sharing + 5,919 Abandoned Checkout
-Recovery + 6,237 Instant Forex, per
-`out/04_abondon_checkout_recovery_2/load_report.md` and
-`out/05_instant_forex/load_report.md`, the Abandoned Checkout Recovery
+Recovery + 6,237 Instant Forex + 5,363 Promo/Coupon, per
+`out/04_abondon_checkout_recovery_2/load_report.md`,
+`out/05_instant_forex/load_report.md`, and
+`out/06_unseen_spec_2/load_report.md`, the Abandoned Checkout Recovery
 figure confirmed non-duplicated by
 `out/04_checkout_recovery_3/analysis/q01.md`–`q04.md`, 2026-08-02). Data
 window: 2025-12-31 23:41 → 2026-07-01 03:01 (baseline); Express Checkout
 sample: 2026-06-08 → 2026-06-28; Group/Family sample: 2026-06-08 →
 2026-06-28; Status Sharing sample: 2026-06-08 06:00 → 2026-07-01 09:21;
 Abandoned Checkout Recovery sample: 2026-06-08 06:01 → 2026-07-01 00:00;
-Instant Forex sample: 2026-06-08 06:00 → 2026-06-28 23:12 (per
-profile.md).
+Instant Forex sample: 2026-06-08 06:00 → 2026-06-28 23:12; Promo/Coupon
+sample: 2026-06-08 06:00 → 2026-06-28 23:11 (per profile.md). Spec 06's
+row counts and D2 verdict are confirmed by `load_report.md`, and its
+apply rate, reject-reason partition, conversion-lift (reversed), margin
+cost, and segment cuts are now verified by
+`out/06_unseen_spec_2/analysis/q01.md`–`q04.md` — see the coupon flow
+table pages and the `✦` note above. The `coupon_applied`/`discount_shown`
+1:1 pairing remains the one still-unverified row-count observation for
+this spec.
 
 ---
 
@@ -308,6 +365,21 @@ questions name `destination` explicitly ("attach rate … by `destination`",
 `destination` from `LowCardinality(String)` (specs 01–04's pattern) to
 `FixedString(2)` — a checked, justified exception, not a reflexive
 default; see [forex_offer_shown](forex_offer_shown.md) for the reasoning.
+
+**The 6 Promo/Coupon tables (spec 06, sealed/unseen) also follow D8, split
+between three leading discriminators.** `ENGINE = MergeTree` throughout;
+`coupon_field_shown` → `(toDate(timestamp), device_type, user_id, id)`
+(no `coupon_code` exists yet at this step, so it leads on the
+lowest-cardinality field available); `coupon_entered`/`coupon_applied`/
+`discount_shown`/`checkout_with_coupon` → `(toDate(timestamp),
+coupon_code, user_id, id)` (the PM's central dimension — "which codes
+drive volume vs erode margin"); `coupon_rejected` →
+`(toDate(timestamp), reject_reason, user_id, id)` (the PM's explicit "top
+reject reasons" cut, and the lower-cardinality choice for that table).
+`checkout_with_coupon` additionally requires `SETTINGS
+allow_nullable_key = 1` since its leading `coupon_code` is `Nullable` by
+design (NULL = the no-coupon baseline, the PM's conversion-lift split).
+See [coupon_field_shown](coupon_field_shown.md) and its 5 sibling pages.
 
 ## Two corrections to base_context's table model
 
