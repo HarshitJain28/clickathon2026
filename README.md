@@ -31,7 +31,7 @@ anyone could even ask. C-ATLYST does both ends of that itself.
 
 ## Demo Video
 
-_Placeholder — link to be added._
+[Drive Link](https://drive.google.com/file/d/12kLgFNx0Hz2m1DaL42F3NyGTXYtaDiFS/view)
 
 ## Architecture
 
