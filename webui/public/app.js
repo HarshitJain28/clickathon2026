@@ -13,13 +13,15 @@
  *                pipeline stages live via SSE, then render the resulting
  *                analysis outputs.
  *
- * Chat state (chats, their messages, which one is active) is persisted to
- * localStorage on every change and reloaded on boot, so a page refresh
- * doesn't lose history — it's still per-browser, not synced anywhere.
+ * Chat state (chats, their messages, which one is active) is persisted on
+ * the server (out/webui_chats/chat_history.json — see server.js's
+ * GET/PUT /api/chats), not browser localStorage: it survives a refresh,
+ * a different browser, or a cleared profile, all identically, since the
+ * server is the single source of truth rather than something per-origin
+ * living inside one browser.
  */
 
 const DEFAULT_CHAT_TITLE = "Test";
-const STORAGE_KEY = "atlys_analytics_chat_state_v1";
 
 const state = {
   chats: {}, // id -> { id, title, messages: [{role, content, html, error}] }
@@ -32,53 +34,42 @@ function uid() {
   return Math.random().toString(16).slice(2, 10);
 }
 
-/** Persists chats/chatOrder/activeChatId. Safe to call often — a full
- * report page can be large, so a quota error here is caught and logged
- * rather than allowed to break the app; the session just won't survive a
- * refresh in that case. */
+/** Persists chats/chatOrder/activeChatId to disk via the server. Fire-and-
+ * forget from callers' point of view — errors are logged, not thrown, so a
+ * transient network hiccup never breaks the UI (it just risks that one
+ * save not surviving a refresh). */
 function saveChatState() {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        chats: state.chats,
-        chatOrder: state.chatOrder,
-        activeChatId: state.activeChatId,
-      })
-    );
-  } catch (err) {
-    console.warn("Could not persist chat history:", err.message);
-  }
+  fetch("/api/chats", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chats: state.chats,
+      chatOrder: state.chatOrder,
+      activeChatId: state.activeChatId,
+    }),
+  }).catch((err) => console.warn("Could not persist chat history:", err.message));
 }
 
 /** Returns true if a valid saved session was restored into `state`. */
-function loadChatState() {
-  let raw;
+async function loadChatState() {
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
-  } catch (err) {
-    console.warn("Could not read persisted chat history:", err.message);
-    return false;
-  }
-  if (!raw) return false;
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.chats !== "object" || !Array.isArray(parsed.chatOrder)) {
+    const res = await fetch("/api/chats");
+    const data = await res.json();
+    if (!data || typeof data.chats !== "object" || !Array.isArray(data.chatOrder)) {
       return false;
     }
-    const chatOrder = parsed.chatOrder.filter((id) => parsed.chats[id]);
+    const chatOrder = data.chatOrder.filter((id) => data.chats[id]);
     if (!chatOrder.length) return false;
 
-    state.chats = parsed.chats;
+    state.chats = data.chats;
     state.chatOrder = chatOrder;
     state.activeChatId =
-      parsed.activeChatId && state.chats[parsed.activeChatId]
-        ? parsed.activeChatId
+      data.activeChatId && state.chats[data.activeChatId]
+        ? data.activeChatId
         : chatOrder[chatOrder.length - 1];
     return true;
   } catch (err) {
-    console.warn("Ignoring corrupt persisted chat history:", err.message);
+    console.warn("Could not load persisted chat history:", err.message);
     return false;
   }
 }
@@ -272,6 +263,109 @@ function finalizeAssistantMessage(chat, pendingRow, message) {
   }
 }
 
+/** Set while the page is being torn down (refresh/navigation). EventSource
+ * fires onerror as the page unloads, which is NOT a real failure — without
+ * this guard a refresh would write a bogus "Lost connection" message into
+ * the persisted history, which is exactly what it did before. */
+let pageUnloading = false;
+window.addEventListener("beforeunload", () => {
+  pageUnloading = true;
+});
+
+function setInputEnabled(enabled) {
+  const promptInput = document.getElementById("promptInput");
+  const sendBtn = document.getElementById("sendBtn");
+  promptInput.disabled = !enabled;
+  sendBtn.disabled = !enabled;
+  if (enabled) promptInput.focus();
+}
+
+/**
+ * Attach to a running analysis job and drive the live bubble until it
+ * settles. Used both for a freshly-started question and for reattaching to
+ * a job that was still in flight when the page was refreshed.
+ */
+function watchAnalysisJob(chat, jobId, index, row, feed) {
+  let settled = false;
+  const es = new EventSource(`/api/analysis/stream/${jobId}`);
+
+  // Idempotency guard: EventSource can legitimately fire onerror for a
+  // transient blip and then still deliver "done" once it auto-reconnects
+  // (or vice versa, in some race), so settle() itself must refuse a second
+  // call rather than trusting every caller to check `settled` first.
+  const settle = (finalMsg, ok) => {
+    if (settled) return;
+    settled = true;
+    es.close();
+    feed.finish(ok);
+    delete chat.pendingJob;
+    finalizeAssistantMessage(chat, row, finalMsg);
+    setInputEnabled(true);
+  };
+
+  es.onmessage = (e) => {
+    feed.push(JSON.parse(e.data));
+    if (chat.id === state.activeChatId) {
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+  };
+
+  es.addEventListener("done", async () => {
+    try {
+      const resultsRes = await fetch(`/api/analysis/results/${jobId}`);
+      const data = await resultsRes.json();
+      if (data.error) {
+        settle(
+          {
+            role: "assistant",
+            content:
+              "⚠️ **The Analysis Agent couldn't answer this question.**\n\n```\n" +
+              data.error +
+              "\n```",
+            error: true,
+            rawLog: data.rawLog || null,
+          },
+          false
+        );
+      } else {
+        settle(
+          {
+            role: "assistant",
+            content: extractAnswerSection(data.markdown),
+            html: data.html || null,
+          },
+          true
+        );
+      }
+    } catch (err) {
+      settle(
+        { role: "assistant", content: "⚠️ Request failed: " + err.message, error: true },
+        false
+      );
+    }
+  });
+
+  es.onerror = () => {
+    if (settled) return; // server closes the stream normally on completion
+    if (pageUnloading) {
+      // The page is going away, not the job — leave chat.pendingJob intact
+      // so the next load reattaches instead of recording a false failure.
+      es.close();
+      return;
+    }
+    // EventSource fires onerror on ANY hiccup — including ones it recovers
+    // from on its own by auto-reconnecting (readyState goes to CONNECTING,
+    // not CLOSED). Only readyState === CLOSED means the browser has well
+    // and truly given up; anything else, just wait for it to reconnect
+    // rather than declaring the job dead while it's still actually running.
+    if (es.readyState !== EventSource.CLOSED) return;
+    settle(
+      { role: "assistant", content: "⚠️ Lost connection to the Analysis Agent.", error: true },
+      false
+    );
+  };
+}
+
 async function sendPrompt(question) {
   const chat = activeChat();
   chat.messages.push({ role: "user", content: question });
@@ -279,11 +373,7 @@ async function sendPrompt(question) {
     chat.title = chatTitleFromQuestion(question);
   }
   renderAll();
-
-  const promptInput = document.getElementById("promptInput");
-  const sendBtn = document.getElementById("sendBtn");
-  promptInput.disabled = true;
-  sendBtn.disabled = true;
+  setInputEnabled(false);
 
   const index = chat.messages.filter((m) => m.role === "user").length;
 
@@ -291,12 +381,6 @@ async function sendPrompt(question) {
   const { row, feed } = buildPendingAssistantRow();
   container.appendChild(row);
   window.scrollTo(0, document.body.scrollHeight);
-
-  const releaseInput = () => {
-    promptInput.disabled = false;
-    sendBtn.disabled = false;
-    promptInput.focus();
-  };
 
   let jobId;
   try {
@@ -314,70 +398,76 @@ async function sendPrompt(question) {
       content: "⚠️ Request failed: " + err.message,
       error: true,
     });
-    releaseInput();
+    setInputEnabled(true);
     return;
   }
 
-  let settled = false;
-  const es = new EventSource(`/api/analysis/stream/${jobId}`);
+  // Persisted so a refresh mid-run can reattach to this same job rather
+  // than losing it (see resumePendingJob).
+  chat.pendingJob = { jobId, index };
+  saveChatState();
 
-  es.onmessage = (e) => {
-    feed.push(JSON.parse(e.data));
-    window.scrollTo(0, document.body.scrollHeight);
-  };
+  watchAnalysisJob(chat, jobId, index, row, feed);
+}
 
-  es.addEventListener("done", async () => {
-    settled = true;
-    es.close();
+/**
+ * After a page load, pick up a question that was still running when the
+ * page went away. Three cases:
+ *   - job still alive in memory  -> reattach to its SSE stream
+ *   - job gone but qNN.md exists -> it finished while we were away; show it
+ *   - job gone and no output     -> it was genuinely interrupted; say so
+ */
+async function resumePendingJob(chat) {
+  const pending = chat.pendingJob;
+  if (!pending) return;
 
-    let finalMsg;
-    try {
-      const resultsRes = await fetch(`/api/analysis/results/${jobId}`);
-      const data = await resultsRes.json();
-      if (data.error) {
-        feed.finish(false);
-        finalMsg = {
-          role: "assistant",
-          content:
-            "⚠️ **The Analysis Agent couldn't answer this question.**\n\n```\n" +
-            data.error +
-            "\n```",
-          error: true,
-          rawLog: data.rawLog || null,
-        };
-      } else {
-        feed.finish(true);
-        finalMsg = {
-          role: "assistant",
-          content: extractAnswerSection(data.markdown),
-          html: data.html || null,
-        };
-      }
-    } catch (err) {
-      feed.finish(false);
-      finalMsg = {
+  const container = document.getElementById("messages");
+  const { row, feed } = buildPendingAssistantRow();
+  container.appendChild(row);
+
+  let alive = false;
+  try {
+    const statusRes = await fetch(`/api/analysis/job/${pending.jobId}`);
+    const status = await statusRes.json();
+    alive = status.exists && !status.done;
+  } catch (_err) {
+    alive = false;
+  }
+
+  if (alive) {
+    setInputEnabled(false);
+    watchAnalysisJob(chat, pending.jobId, pending.index, row, feed);
+    return;
+  }
+
+  // Not running anymore — recover the answer from disk if the agent got
+  // far enough to write one.
+  try {
+    const res = await fetch(`/api/analysis/result-file/${chat.id}/${pending.index}`);
+    if (res.ok) {
+      const data = await res.json();
+      feed.finish(true);
+      delete chat.pendingJob;
+      finalizeAssistantMessage(chat, row, {
         role: "assistant",
-        content: "⚠️ Request failed: " + err.message,
-        error: true,
-      };
+        content: extractAnswerSection(data.markdown),
+        html: data.html || null,
+      });
+      return;
     }
+  } catch (_err) {
+    /* fall through to the interrupted message below */
+  }
 
-    finalizeAssistantMessage(chat, row, finalMsg);
-    releaseInput();
+  feed.finish(false);
+  delete chat.pendingJob;
+  finalizeAssistantMessage(chat, row, {
+    role: "assistant",
+    content:
+      "⚠️ This question was interrupted (the server restarted or the run " +
+      "expired before it finished). Ask it again to retry.",
+    error: true,
   });
-
-  es.onerror = () => {
-    if (settled) return; // server closes the stream normally on completion
-    settled = true;
-    es.close();
-    feed.finish(false);
-    finalizeAssistantMessage(chat, row, {
-      role: "assistant",
-      content: "⚠️ Lost connection to the Analysis Agent.",
-      error: true,
-    });
-    releaseInput();
-  };
 }
 
 // ----------------------------------------------------------------------
@@ -487,6 +577,49 @@ function initOnboardForm() {
   const rawLogEl = document.getElementById("onboardRawLog");
   const resultsEl = document.getElementById("onboardResults");
 
+  const approvalPanel = document.getElementById("approvalPanel");
+  const approvalDdlEl = document.getElementById("approvalDdl");
+  const approvalJustificationEl = document.getElementById("approvalJustification");
+  const approveBtn = document.getElementById("approveBtn");
+  const rejectBtn = document.getElementById("rejectBtn");
+
+  let currentJobId = null;
+
+  const hideApprovalPanel = () => {
+    approvalPanel.style.display = "none";
+    approvalDdlEl.textContent = "";
+    approvalJustificationEl.innerHTML = "";
+    approveBtn.disabled = false;
+    rejectBtn.disabled = false;
+  };
+
+  approveBtn.addEventListener("click", async () => {
+    approveBtn.disabled = true;
+    rejectBtn.disabled = true;
+    statusEl.textContent = "Approved — continuing the pipeline…";
+    hideApprovalPanel();
+    try {
+      const res = await fetch(`/api/onboard/approve/${currentJobId}`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) statusEl.textContent = "⚠️ " + data.error;
+    } catch (err) {
+      statusEl.textContent = "⚠️ Request failed: " + err.message;
+    }
+  });
+
+  rejectBtn.addEventListener("click", async () => {
+    approveBtn.disabled = true;
+    rejectBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/onboard/reject/${currentJobId}`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) statusEl.textContent = "⚠️ " + data.error;
+    } catch (err) {
+      statusEl.textContent = "⚠️ Request failed: " + err.message;
+    }
+    hideApprovalPanel();
+  });
+
   const updateRunButtonState = () => {
     runBtn.disabled = !(
       specNameInput.value.trim() &&
@@ -522,41 +655,17 @@ function initOnboardForm() {
     rawDetailsEl.style.display = "none";
     rawLogEl.textContent = "";
     resultsEl.innerHTML = "";
+    hideApprovalPanel();
+    currentJobId = null;
     updateRunButtonState();
   });
 
-  runBtn.addEventListener("click", async () => {
-    runBtn.disabled = true;
-    statusEl.textContent = "";
-    pipelineEl.style.display = "";
-    pipelineEl.innerHTML = "";
-    stepListEl.style.display = "";
-    stepListEl.innerHTML = "";
-    rawDetailsEl.style.display = "";
-    rawLogEl.textContent = "";
-    resultsEl.innerHTML = "";
-
-    const form = new FormData();
-    form.append("specName", specNameInput.value.trim());
-    form.append("specMd", specMdInput.files[0]);
-    form.append("eventsNdjson", eventsInput.files[0]);
-
-    let jobId, specSlug;
-    try {
-      const res = await fetch("/api/onboard/start", { method: "POST", body: form });
-      const data = await res.json();
-      if (data.error) {
-        statusEl.textContent = "⚠️ " + data.error;
-        updateRunButtonState();
-        return;
-      }
-      jobId = data.jobId;
-      specSlug = data.specSlug;
-    } catch (err) {
-      statusEl.textContent = "⚠️ Request failed: " + err.message;
-      updateRunButtonState();
-      return;
-    }
+  /** Puts the view into "a run is in flight" shape and attaches to its SSE
+   * stream. Shared by a freshly-started run and by reattaching to one that
+   * was already running when the page loaded (see resumeOnboardJob), so a
+   * refresh mid-pipeline recovers instead of losing everything. */
+  function watchOnboardJob(jobId, specSlug) {
+    currentJobId = jobId;
 
     // Collapse the upload form now that a run is actually in flight, so the
     // pipeline/results below have the room instead of sitting under a form
@@ -565,6 +674,9 @@ function initOnboardForm() {
     collapsedBar.style.display = "flex";
     collapsedLabel.textContent = `📤 ${specSlug}`;
     onboardAnotherBtn.style.display = "none";
+    pipelineEl.style.display = "";
+    stepListEl.style.display = "";
+    rawDetailsEl.style.display = "";
 
     statusEl.textContent = `Onboarding ${specSlug} — this can take several minutes.`;
     const pipeline = new PipelineTracker(pipelineEl);
@@ -590,14 +702,34 @@ function initOnboardForm() {
       feed.push(line);
     };
 
-    es.addEventListener("done", async (e) => {
-      settled = true;
-      const { code } = JSON.parse(e.data);
-      es.close();
-      pipeline.finish(code === 0);
-      feed.finish(code === 0);
+    // The human-in-the-loop gate: the Instrumentation Agent finished and the
+    // job is now paused, waiting on the Approve/Reject click below — the
+    // server won't run anything further until one of those POSTs arrives.
+    es.addEventListener("awaiting-approval", (e) => {
+      const { ddl, justification } = JSON.parse(e.data);
+      approvalDdlEl.textContent = ddl || "(no ddl.sql was produced)";
+      approvalJustificationEl.innerHTML = renderMarkdown(
+        justification || "_No justification.md was produced._"
+      );
+      approvalPanel.style.display = "";
+      statusEl.textContent = "Schema designed — review it below before continuing.";
+      window.scrollTo(0, document.body.scrollHeight);
+    });
 
-      if (code === 0) {
+    es.addEventListener("done", async (e) => {
+      if (settled) return; // guards against a stray duplicate event
+      settled = true;
+      const { code, status } = JSON.parse(e.data);
+      es.close();
+      const succeeded = status !== "rejected" && code === 0;
+      pipeline.finish(succeeded);
+      feed.finish(succeeded);
+
+      if (status === "rejected") {
+        statusEl.textContent =
+          `🚫 Schema rejected — pipeline stopped for ${specSlug}. ` +
+          "Nothing was created in ClickHouse or the wiki.";
+      } else if (code === 0) {
         statusEl.textContent = `✅ Spec ${specSlug} onboarded successfully.`;
         try {
           const resultsRes = await fetch(`/api/onboard/results/${jobId}`);
@@ -615,6 +747,18 @@ function initOnboardForm() {
 
     es.onerror = () => {
       if (settled) return; // server closes the stream normally on completion
+      if (pageUnloading) {
+        // Refresh/navigation, not a dead pipeline — the orchestrator keeps
+        // running server-side and the next load reattaches to it.
+        es.close();
+        return;
+      }
+      // EventSource fires onerror on ANY hiccup, including ones it recovers
+      // from on its own via auto-reconnect (readyState -> CONNECTING, not
+      // CLOSED). Only a truly closed connection means the run is actually
+      // unreachable — otherwise wait for it to reconnect rather than
+      // declaring a multi-minute pipeline dead over a transient blip.
+      if (es.readyState !== EventSource.CLOSED) return;
       settled = true;
       es.close();
       pipeline.finish(false);
@@ -623,7 +767,59 @@ function initOnboardForm() {
       onboardAnotherBtn.style.display = "";
       updateRunButtonState();
     };
+  }
+
+  runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true;
+    statusEl.textContent = "";
+    pipelineEl.innerHTML = "";
+    stepListEl.innerHTML = "";
+    rawLogEl.textContent = "";
+    resultsEl.innerHTML = "";
+    hideApprovalPanel();
+
+    const form = new FormData();
+    form.append("specName", specNameInput.value.trim());
+    form.append("specMd", specMdInput.files[0]);
+    form.append("eventsNdjson", eventsInput.files[0]);
+
+    try {
+      const res = await fetch("/api/onboard/start", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.error) {
+        statusEl.textContent = "⚠️ " + data.error;
+        updateRunButtonState();
+        return;
+      }
+      watchOnboardJob(data.jobId, data.specSlug);
+    } catch (err) {
+      statusEl.textContent = "⚠️ Request failed: " + err.message;
+      updateRunButtonState();
+    }
   });
+
+  /** On page load, reattach to an onboarding run that's still going (or is
+   * paused awaiting approval). Returns true if one was found, so boot can
+   * switch straight to the onboard view. */
+  async function resumeOnboardJob() {
+    let active;
+    try {
+      const res = await fetch("/api/onboard/active");
+      active = await res.json();
+    } catch (_err) {
+      return false;
+    }
+    if (!active || !active.jobId) return false;
+
+    // Reattaching replays every line the job has emitted so far, which
+    // rebuilds the pipeline tracker and step feed from scratch — and the
+    // server re-sends `awaiting-approval` if it's paused, so the review
+    // panel comes back too.
+    watchOnboardJob(active.jobId, active.specSlug);
+    return true;
+  }
+
+  return { resumeOnboardJob };
 }
 
 // ----------------------------------------------------------------------
@@ -672,8 +868,20 @@ document.getElementById("backToChatBtn").addEventListener("click", () => {
 });
 
 initChatInput();
-initOnboardForm();
-if (!loadChatState()) {
-  createChat();
-}
-renderAll();
+const onboardApi = initOnboardForm();
+(async () => {
+  if (!(await loadChatState())) {
+    createChat();
+  }
+  renderAll();
+
+  // Anything that was still running when the page was refreshed gets picked
+  // back up rather than silently lost. An in-flight onboarding pipeline wins
+  // the view, since that's the longer, more disruptive thing to lose.
+  const resumedOnboard = await onboardApi.resumeOnboardJob();
+  if (resumedOnboard) {
+    state.view = "onboard";
+    renderAll();
+  }
+  await resumePendingJob(activeChat());
+})();

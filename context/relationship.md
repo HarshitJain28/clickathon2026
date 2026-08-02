@@ -3,7 +3,7 @@ id: doc.relationship
 kind: relationship
 status: verified
 confidence: high
-source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation; out/02_group_family/load_report.md — D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — independent re-confirmation, group completion-rate and churn analysis; out/03_status_sharing/load_report.md — D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — independent re-confirmation, share-flow completion rate, K-factor
+source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation; out/02_group_family/load_report.md — D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — independent re-confirmation, group completion-rate and churn analysis; out/03_status_sharing/load_report.md — D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — independent re-confirmation, share-flow completion rate, K-factor; out/04_abondon_checkout_recovery_2/load_report.md — D2 overlap_pct for all 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical D2 overlap_pct on independent resubmission, raises open duplicate-load question
 last_verified: 2026-08-02
 links: [doc.business, doc.known_issues, tables.index]
 ---
@@ -230,6 +230,80 @@ viral-acquisition signal), `cta` (single-valued today,
 `start_own_application`, `recipient_cta_clicked` only). See
 [tables/share_clicked.md](tables/share_clicked.md) and its 4 sibling pages.
 
+### Recovery
+
+An abandoned-checkout recovery attempt, originating at
+`abandonment_detected` (spec 04). **2,300 detected drops** exist in the
+profiled sample (2026-06-08 06:01 → 2026-07-01 00:00), one per dropping
+user. No new key/entity id is minted here — the 6 tables join each other
+on the existing `user_id`/`application_id` envelope columns plus two
+shared context columns, `drop_step` and `channel`, rather than a
+spec-local key like `group_id`/`share_id`.
+
+Row counts (spec 04 sample):
+
+| Table | Rows | Distinct `user_id` |
+|---|---:|---:|
+| `abandonment_detected` (origin) | 2,300 | 2,300 |
+| `reminder_sent` | 2,300 | 2,300 |
+| `reminder_opened` | 690 | 690 |
+| `reminder_cta_clicked` | 268 | 268 |
+| `resumed_at_step` | 268 | 268 |
+| `reconverted` | 93 | 93 |
+
+**⚠ `application_id` does not join `application_started` — 0% overlap on
+all 6 tables.** `application_id` is present on 100% of rows across every
+one of the 6 tables. The mandatory D2 overlap-check ran against
+`application_started` and returned **`overlap_pct = 0.0%`** on all 6
+(`out/04_abondon_checkout_recovery_2/load_report.md`, 2026-08-02) — the
+same STOP verdict specs 01–03 got. Analyse the recovery flow standalone
+until re-tested. See [known_issues.md](known_issues.md) → D2.
+
+**Unlike specs 01–03, this spec's own `justification.md` flags a
+follow-up not yet run:** its `user_id` values are well-formed 28-char
+strings matching this document's stated format exactly, and — unlike
+`application_id` — have **not** been overlap-checked against
+`application_started`/`destination_card_clicked`. `load_report.md` only
+ran the D2 check on `application_id`; no `analysis/qNN.md` file exists yet
+for this spec to have run the `user_id` check either. This is the
+first join-integrity test that should be run for this spec, before
+assuming the flow is standalone by default the way specs 01–03 turned
+out to be.
+
+**The 6-table step-through chain (recovery funnel) is currently only
+row-count ratios**, not verified set membership — no `analysis/qNN.md`
+file exists yet for this spec. Overall: `reconverted` ÷
+`abandonment_detected` = 93/2,300 = **4.04%**, the PM's headline recovery
+metric. Per-channel: WhatsApp opens best (46.28% vs. push 28.30%, email
+21.24%) but push edges WhatsApp on end-to-end recovery-of-sent (4.66% vs.
+4.34%; email lowest at 2.80%). See
+[abandonment_detected.md](tables/abandonment_detected.md) and
+[reminder_sent.md](tables/reminder_sent.md) for the full breakdown, and
+[known_issues.md](known_issues.md) → K5, which this spec's `channel` and
+`resumed_at_step` columns now make re-testable (not yet re-tested — no
+live query has run).
+
+**⚠ 2026-08-02 — resubmitted under a new output directory,
+`out/04_checkout_recovery_3`, with byte-identical row counts and D2
+verdict.** `ddl.sql` uses `CREATE TABLE IF NOT EXISTS`, so no new tables
+were created, but whether the accompanying load re-inserted the same rows
+on top of the original load (doubling each table's true live count) is
+**not stated** by either run's `load_report.md` — an open question, not
+yet resolvable without a live query. See
+[known_issues.md](known_issues.md) → D2 and
+[tables/abandonment_detected.md](tables/abandonment_detected.md) for the
+full reasoning, carried on all 6 table pages. The row counts above should
+be treated as unverified against this possibility.
+
+Attributes: `drop_step` (`document_uploaded`/`destination_card_clicked`/
+`application_started`/`pay_now_clicked` — which of the 4 existing funnel
+tables the user last touched before dropping), `channel`
+(`push`/`email`/`whatsapp`, on 5 of the 6 tables — absent from
+`abandonment_detected`), `hours_since_drop` (`UInt8`, range `[1, 48]`,
+`reminder_sent` only). See
+[tables/abandonment_detected.md](tables/abandonment_detected.md) and its
+5 sibling pages.
+
 ### Entities the incoming specs will add
 
 - **Group** (spec 02) — **instrumented 2026-08-02, see "Group" above.** The
@@ -255,6 +329,15 @@ destination reach, AE leads destination conversion efficiency. **Still
 open:** the sharer-side ↔ recipient-side `share_id` join itself (as opposed
 to the two same-side edges, both now verified) has not been
 set-membership checked by any analysis question yet.
+
+**Recovery (spec 04) — instrumented 2026-08-02, see "Recovery" above.**
+Unlike Group/Share, this spec mints no new spec-local key — its 6 tables
+join on the existing `user_id`/`application_id` envelope columns plus
+`drop_step`/`channel`. No `analysis/qNN.md` file exists yet for this
+spec, so (unlike specs 01–03) none of its step-through figures are
+verified set-membership joins yet — see "Recovery" above for the
+row-count-ratio figures available today and the still-open `user_id`
+overlap check.
 
 **Spec 01 (Express Checkout) — instrumented, 2026-08-01, no new entity.**
 Checked against this list per `out/01_express_checkout/justification.md`:
@@ -299,10 +382,12 @@ applied — a real, undocumented top-of-funnel cohort.
 ## 3. Join map
 
 - **`user_id`** — universal, non-null everywhere. Joins any table to any table.
+  Spec 04's 6 tables carry a well-formed `user_id` that has **not yet** been
+  overlap-checked against the main funnel — see "Recovery" above.
 - **`application_id`** — joins `application_started` → `document_uploaded`,
   `pay_now_clicked`, `purchase_completed`. **Not** usable as a join key for
-  spec 01's 5 tables or spec 02's 4 tables — both independently verified 0%
-  overlap (D2).
+  spec 01's 5 tables, spec 02's 4 tables, spec 03's 3 sharer-side tables, or
+  spec 04's 6 tables — all independently verified 0% overlap (D2).
 - **`group_id`** — spec-local (spec 02 only). Joins `group_started` →
   `traveller_added`/`traveller_removed`/`group_submitted`. Does not join
   `application_id` or `user_id`.
