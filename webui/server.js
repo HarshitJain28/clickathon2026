@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Atlys Analytics — lightweight Node/Express web UI.
+ * C-ATLYST — lightweight Node/Express web UI.
  *
  * Serves a ChatGPT-style chat page (public/) and exposes a small API that
  * shells out to the existing Python agents — no logic is reimplemented,
@@ -59,6 +59,39 @@ const express = require("express");
 const multer = require("multer");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
+
+/**
+ * Load the repo's .env into process.env (without clobbering anything already
+ * set). The Python agents do this themselves via python-dotenv; this server
+ * needs the same LANGFUSE_* credentials to publish a run's root span, and to
+ * pass a complete environment down to the agents it spawns. Hand-parsed to
+ * avoid pulling in a dependency for ~10 lines.
+ */
+function loadDotEnv(file) {
+  let raw;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return; // no .env is a valid setup — env may come from the shell
+  }
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+loadDotEnv(path.join(REPO_ROOT, ".env"));
+
 const ANALYSIS_AGENT = path.join(REPO_ROOT, "analysis_agent.py");
 const INSTRUMENTATION_AGENT = path.join(REPO_ROOT, "instrumentation_agent.py");
 const ORCHESTRATOR = path.join(REPO_ROOT, "orchestrator.py");
@@ -105,9 +138,9 @@ async function uniqueDir(root, slug) {
 
 /** Spawn `cmd args`, line-buffering combined stdout+stderr into onLine.
  * Resolves with the exit code, or rejects on spawn error / timeout. */
-function runProcess(cmd, args, { timeoutMs, onLine } = {}) {
+function runProcess(cmd, args, { timeoutMs, onLine, env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: REPO_ROOT });
+    const child = spawn(cmd, args, { cwd: REPO_ROOT, ...(env ? { env } : {}) });
     let buffer = "";
     let killedForTimeout = false;
 
@@ -329,14 +362,17 @@ function finishJob(jobId, job, code) {
       code,
       finishedAt: new Date().toISOString(),
     }).catch((err) => console.warn("Could not persist onboard_history.json:", err.message));
+    // Publish the Langfuse root span now that the run's full extent (across
+    // both phases and the approval pause) is known.
+    emitOnboardRootSpan(job, job.status);
   }
 }
 
 /** Runs `cmd args` for `job`, streaming lines live, then calls `onExit(code)`
  * — the caller decides what "done" means (finish the job outright, or, for
  * the Instrumentation Agent phase, pause for approval instead). */
-function runJobProcess(job, cmd, args, timeoutMs, onExit) {
-  runProcess(cmd, args, { timeoutMs, onLine: (line) => broadcastLine(job, line) })
+function runJobProcess(job, cmd, args, timeoutMs, onExit, env) {
+  runProcess(cmd, args, { timeoutMs, onLine: (line) => broadcastLine(job, line), env })
     .then(onExit)
     .catch((err) => {
       broadcastLine(job, `error: ${err.message}`);
@@ -496,6 +532,85 @@ app.get("/api/analysis/result-file/:chatId/:index", async (req, res) => {
 // -> pause for human approval -> orchestrator.py --skip-instrumentation
 // ---------------------------------------------------------------------
 
+/**
+ * Environment that ties every process of one onboarding job into a single
+ * Langfuse trace.
+ *
+ * The human approval gate splits onboarding across two separate processes
+ * (Instrumentation Agent, then orchestrator.py) with an arbitrarily long
+ * human pause between them — so neither can be the other's parent process.
+ * Minting the ids here, in the one component that outlives both, is what
+ * keeps them in one trace instead of two disconnected ones.
+ *
+ * Both phases parent to `job.rootSpanId`, and `emitOnboardRootSpan` below
+ * publishes that span for real once the job settles — otherwise the Langfuse
+ * SDK would invent a random phantom parent per process (it does that
+ * whenever trace_context has no parent_span_id) and the observations would
+ * show up orphaned instead of under one root.
+ */
+function onboardTraceEnv(job) {
+  return {
+    ...process.env,
+    LANGFUSE_PIPELINE_TRACE_ID: job.traceId,
+    LANGFUSE_PIPELINE_PARENT_SPAN_ID: job.rootSpanId,
+    LANGFUSE_PIPELINE_TRACE_NAME: `onboard-spec:${job.specSlug}`,
+    LANGFUSE_PIPELINE_SESSION_ID: job.specSlug,
+  };
+}
+
+/**
+ * Publish the run's root span directly to Langfuse's ingestion API, using
+ * the id both phases already parented themselves to. Done here rather than
+ * from Python because this span has to cover the entire run — including the
+ * human approval pause, during which no Python process is even alive.
+ *
+ * Best-effort: tracing must never break or delay an onboarding, so failures
+ * are logged and swallowed.
+ */
+async function emitOnboardRootSpan(job, status) {
+  const host =
+    process.env.LANGFUSE_HOST || process.env.LANGFUSE_BASE_URL || "https://cloud.langfuse.com";
+  const pk = process.env.LANGFUSE_PUBLIC_KEY;
+  const sk = process.env.LANGFUSE_SECRET_KEY;
+  if (!pk || !sk || !job.traceId || !job.rootSpanId) return;
+
+  const body = {
+    batch: [
+      {
+        id: crypto.randomBytes(8).toString("hex"),
+        type: "span-create",
+        timestamp: new Date().toISOString(),
+        body: {
+          id: job.rootSpanId,
+          traceId: job.traceId,
+          name: `onboard-spec:${job.specSlug}`,
+          startTime: job.startedAt,
+          endTime: new Date().toISOString(),
+          input: { specSlug: job.specSlug, specDir: job.specDir },
+          output: { status },
+          metadata: { source: "webui" },
+        },
+      },
+    ],
+  };
+
+  try {
+    const res = await fetch(`${host}/api/public/ingestion`, {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${pk}:${sk}`).toString("base64"),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.warn("Langfuse root span ingestion failed:", res.status, await res.text());
+    }
+  } catch (err) {
+    console.warn("Langfuse root span ingestion error:", err.message);
+  }
+}
+
 /** Phase 1: run the Instrumentation Agent alone. On success, don't finish
  * the job — pause it awaiting a human decision. On failure, finish it as
  * any other failed job (there's nothing to review yet). */
@@ -523,14 +638,21 @@ function runInstrumentationPhase(jobId, job) {
     // Deliberately no finishJob() call here — the SSE connection stays open,
     // subscribers attached, until POST /approve or /reject decides what
     // happens next.
-  });
+  }, onboardTraceEnv(job));
 }
 
 /** Phase 2 (only reachable via approval): the rest of the pipeline, reusing
  * the schema already designed and reviewed — never re-runs instrumentation. */
 function runRestOfPipeline(jobId, job) {
   const args = [ORCHESTRATOR, job.specDir, "--out-dir", job.outDir, "--skip-instrumentation"];
-  runJobProcess(job, PYTHON_BIN, args, ORCHESTRATOR_TIMEOUT_MS, (code) => finishJob(jobId, job, code));
+  runJobProcess(
+    job,
+    PYTHON_BIN,
+    args,
+    ORCHESTRATOR_TIMEOUT_MS,
+    (code) => finishJob(jobId, job, code),
+    onboardTraceEnv(job)
+  );
 }
 
 app.post(
@@ -560,17 +682,27 @@ app.post(
 
     const outDir = path.join(REPO_ROOT, "out", path.basename(specDir));
     const specSlug = path.basename(specDir);
+    // W3C/OTel-compatible ids, which is what Langfuse expects: 16 random
+    // bytes for the trace, 8 for the span. Minted once here and shared by
+    // both phases of the run.
+    const traceId = crypto.randomBytes(16).toString("hex");
+    const rootSpanId = crypto.randomBytes(8).toString("hex");
+    const startedAt = new Date().toISOString();
     const { jobId, job } = createJob({
       kind: "onboard",
       specSlug,
       specDir: String(specDir),
       outDir,
+      traceId,
+      rootSpanId,
+      startedAt,
     });
     await recordOnboardRun(specSlug, {
       specSlug,
       status: "running",
       code: null,
-      startedAt: new Date().toISOString(),
+      traceId,
+      startedAt,
       finishedAt: null,
     });
     runInstrumentationPhase(jobId, job);
@@ -667,6 +799,6 @@ app.get("/api/onboard/results-by-slug/:specSlug", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Atlys Analytics web UI running at http://localhost:${PORT}`);
+  console.log(`C-ATLYST web UI running at http://localhost:${PORT}`);
   console.log(`Using Python: ${PYTHON_BIN}`);
 });

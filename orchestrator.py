@@ -48,15 +48,26 @@ document, not a technical failure.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parent
 INSTRUMENTATION_AGENT = REPO_ROOT / "instrumentation_agent.py"
 LOADER = REPO_ROOT / "loader.py"
 CONTEXT_AGENT = REPO_ROOT / "context_agent.py"
 QUESTION_EXTRACTOR = REPO_ROOT / "question_extractor.py"
+
+load_dotenv(REPO_ROOT / ".env")
+
+from langfuse import get_client, propagate_attributes  # noqa: E402
+
+from langfuse_trace import child_trace_env, parent_trace_context  # noqa: E402
+
+langfuse_client = get_client()
 
 
 def main():
@@ -93,66 +104,115 @@ def main():
     spec_dir = args.spec_dir.resolve()
     out_dir = (args.out_dir or REPO_ROOT / "out" / spec_dir.name).resolve()
 
-    if not args.skip_instrumentation:
-        instrumentation_cmd = [
+    # One Langfuse trace for the whole run. Every stage below becomes a child
+    # span of this, and each stage exports its ids so the agent subprocess
+    # nests its own spans underneath too — so a spec onboarding reads as a
+    # single end-to-end trace instead of ~6 disconnected ones.
+    trace_name = os.environ.get("LANGFUSE_PIPELINE_TRACE_NAME") or (
+        f"onboard-spec:{spec_dir.name}"
+    )
+    # When the web UI launched this, it already minted a trace id (it has to:
+    # the human approval gate splits onboarding across two processes it
+    # spawns separately). Join that trace instead of opening a new one, so
+    # the whole onboarding stays a single tree. Standalone CLI runs get
+    # None here and start their own trace as before.
+    with langfuse_client.start_as_current_observation(
+        name=trace_name,
+        as_type="agent",
+        trace_context=parent_trace_context(),
+        input={
+            "spec_dir": str(spec_dir),
+            "out_dir": str(out_dir),
+            "skip_instrumentation": args.skip_instrumentation,
+        },
+    ) as run_span, propagate_attributes(
+        trace_name=trace_name,
+        session_id=spec_dir.name,
+        tags=["orchestrator", "onboard-spec"],
+    ):
+
+        def run_stage(stage_id, cmd):
+            """Run one pipeline stage: a Langfuse child span for tracing, and
+            the ::stage-*:: markers the web UI's pipeline tracker reads to
+            show which stage is live. Returns the child's exit code."""
+            with langfuse_client.start_as_current_observation(
+                name=f"stage:{stage_id}", as_type="span", input={"cmd": cmd}
+            ) as stage_span:
+                print(f"::stage-start::{stage_id}", flush=True)
+                result = subprocess.run(
+                    cmd,
+                    env=child_trace_env(
+                        stage_span, trace_name=trace_name, session_id=spec_dir.name
+                    ),
+                )
+                print(f"::stage-end::{stage_id}::{result.returncode}", flush=True)
+                stage_span.update(output={"returncode": result.returncode})
+                return result.returncode
+
+        def fail(stage_id, message, code):
+            print(f"error: {message}", file=sys.stderr)
+            run_span.update(
+                output={"status": "failed", "failed_stage": stage_id, "returncode": code}
+            )
+            return code
+
+        if not args.skip_instrumentation:
+            code = run_stage(
+                "instrumentation",
+                [sys.executable, str(INSTRUMENTATION_AGENT), str(spec_dir),
+                 "--out-dir", str(out_dir)],
+            )
+            if code != 0:
+                return fail("instrumentation", "instrumentation_agent.py failed", code)
+
+        loader_cmd = [
             sys.executable,
-            str(INSTRUMENTATION_AGENT),
+            str(LOADER),
             str(spec_dir),
             "--out-dir",
             str(out_dir),
         ]
-        result = subprocess.run(instrumentation_cmd)
-        if result.returncode != 0:
-            print("error: instrumentation_agent.py failed", file=sys.stderr)
-            return result.returncode
+        if args.context_dir:
+            loader_cmd += ["--context-dir", str(args.context_dir)]
+        code = run_stage("loader", loader_cmd)
+        if code != 0:
+            return fail("loader", "loader.py failed", code)
 
-    loader_cmd = [
-        sys.executable,
-        str(LOADER),
-        str(spec_dir),
-        "--out-dir",
-        str(out_dir),
-    ]
-    if args.context_dir:
-        loader_cmd += ["--context-dir", str(args.context_dir)]
-    result = subprocess.run(loader_cmd)
-    if result.returncode != 0:
-        print("error: loader.py failed", file=sys.stderr)
-        return result.returncode
+        # Pass 1: publish this spec's schema/known-issue caveats into the wiki
+        # BEFORE the Analysis Agent runs, so it has them to orient from.
+        context_cmd = [sys.executable, str(CONTEXT_AGENT), str(out_dir)]
+        if args.context_dir:
+            context_cmd += ["--context-dir", str(args.context_dir)]
+        code = run_stage("context_1", context_cmd)
+        if code != 0:
+            return fail("context_1", "context_agent.py (pass 1) failed", code)
 
-    # Pass 1: publish this spec's schema/known-issue caveats into the wiki
-    # BEFORE the Analysis Agent runs, so it has them to orient from.
-    context_cmd = [sys.executable, str(CONTEXT_AGENT), str(out_dir)]
-    if args.context_dir:
-        context_cmd += ["--context-dir", str(args.context_dir)]
-    result = subprocess.run(context_cmd)
-    if result.returncode != 0:
-        print("error: context_agent.py (pass 1) failed", file=sys.stderr)
-        return result.returncode
+        question_extractor_cmd = [
+            sys.executable,
+            str(QUESTION_EXTRACTOR),
+            str(spec_dir),
+            "--out-dir",
+            str(out_dir / "analysis"),
+        ]
+        if args.context_dir:
+            question_extractor_cmd += ["--context-dir", str(args.context_dir)]
+        code = run_stage("analysis", question_extractor_cmd)
+        if code != 0:
+            return fail("analysis", "question_extractor.py failed", code)
 
-    question_extractor_cmd = [
-        sys.executable,
-        str(QUESTION_EXTRACTOR),
-        str(spec_dir),
-        "--out-dir",
-        str(out_dir / "analysis"),
-    ]
-    if args.context_dir:
-        question_extractor_cmd += ["--context-dir", str(args.context_dir)]
-    result = subprocess.run(question_extractor_cmd)
-    if result.returncode != 0:
-        print("error: question_extractor.py failed", file=sys.stderr)
-        return result.returncode
+        # Pass 2: single-writer consolidation of every analysis/qNN.md the
+        # concurrent Analysis Agent runs just produced.
+        code = run_stage("context_2", context_cmd)
+        if code != 0:
+            return fail("context_2", "context_agent.py (pass 2) failed", code)
 
-    # Pass 2: single-writer consolidation of every analysis/qNN.md the
-    # concurrent Analysis Agent runs just produced.
-    result = subprocess.run(context_cmd)
-    if result.returncode != 0:
-        print("error: context_agent.py (pass 2) failed", file=sys.stderr)
-        return result.returncode
-
-    return 0
+        run_span.update(output={"status": "success", "returncode": 0})
+        return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        exit_code = main()
+    finally:
+        langfuse_client.flush()
+    sys.exit(exit_code)

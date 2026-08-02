@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Atlys Analytics — client-side app logic.
+ * C-ATLYST — client-side app logic.
  *
  * Two views, toggled via state.view:
  *   "chat"     — ChatGPT-style thread. Each question starts a job via

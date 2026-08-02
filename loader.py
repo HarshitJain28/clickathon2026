@@ -407,7 +407,18 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
     skipped_fixes = [i for i in cited_ids if i not in fix_blocks]
 
     buckets = bucket_events(events_path)
-    unmapped = {ev: len(rows) for ev, rows in buckets.items() if ev not in tables}
+    # An event has a load target only if this spec CREATEd a table of that
+    # name, or ALTERed an existing one of that name. Anything else is an
+    # event the Instrumentation Agent folded into a DIFFERENT table as new
+    # columns (ALTER TABLE <other> ADD COLUMN, sourced from this event) --
+    # there is no `clickathon.<event>` table to insert into, and its rows
+    # would be an UPDATE of existing rows rather than an INSERT. Those are
+    # reported as not-loaded rather than attempted; see the load report.
+    unmapped = {
+        ev: len(rows)
+        for ev, rows in buckets.items()
+        if ev not in tables and ev not in altered_tables
+    }
 
     client = get_client()
     for stmt in split_ddl_statements(ddl_text):
@@ -419,6 +430,7 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
         "skipped_fixes": skipped_fixes,
         "materialized_views": [],
         "unmapped_events": unmapped,
+        "altered_tables": sorted(altered_tables),
     }
 
     # MVs are incremental-only in ClickHouse (see query-mv-incremental.md) --
@@ -443,6 +455,11 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
     # current (post-ALTER) column set.
     table_order = list(tables.keys())
     for t in sorted(altered_tables) + sorted(buckets.keys()):
+        # Skip events with no table of their own (see `unmapped` above):
+        # querying system.columns for them returns nothing and the insert
+        # dies with UNKNOWN_TABLE, taking the whole pipeline down.
+        if t in unmapped:
+            continue
         if t not in table_order:
             table_order.append(t)
 
@@ -505,11 +522,44 @@ def render_report(spec_name: str, report: dict) -> str:
             f"Cited but not loader-actionable (no fix block): {', '.join(report['skipped_fixes'])}"
         )
     if report["unmapped_events"]:
+        lines.append("")
+        lines.append("## Events not loaded")
+        altered = report.get("altered_tables") or []
         for ev, n in report["unmapped_events"].items():
+            lines.append("")
+            lines.append(f"### `{ev}` — {n} rows NOT loaded")
             lines.append(
-                f"- NOT LOADED - no CREATE TABLE target for event `{ev}` ({n} rows). "
-                f"If this event was ALTERed into an existing table, its rows were NOT inserted."
+                f"No `clickathon.{ev}` table exists: this spec's ddl.sql neither "
+                f"CREATEd nor ALTERed a table of that name."
             )
+            if altered:
+                lines.append(
+                    f"This spec ALTERed {', '.join('`' + t + '`' for t in altered)} — "
+                    f"so this event's fields were most likely added there as new "
+                    f"columns. Those columns therefore exist but are **empty**: "
+                    f"landing these rows is an UPDATE of existing rows keyed on a "
+                    f"shared id, not an INSERT, which this loader does not do."
+                )
+                lines.append(
+                    "Before treating those columns as populated, verify the join "
+                    "actually holds (every spec so far has had a 0% overlap "
+                    "surprise here):"
+                )
+                lines.append("")
+                lines.append("```sql")
+                for t in altered:
+                    lines.append(
+                        f"-- how many `{ev}` user_ids exist in {t}?\n"
+                        f"SELECT count() FROM clickathon.{t}\n"
+                        f"WHERE user_id IN (<user_ids from {ev} events>);"
+                    )
+                lines.append("```")
+                lines.append(
+                    "If the overlap is high, backfill those columns with an "
+                    "`ALTER TABLE ... UPDATE`. If it is zero, the event is "
+                    "disjoint and should be re-instrumented as its own standalone "
+                    "table instead."
+                )
     if report["materialized_views"]:
         lines.append("## Materialized views")
         for mv in report["materialized_views"]:

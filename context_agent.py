@@ -79,6 +79,8 @@ if os.environ.get("CLAUDE_OAUTH_TOKEN") and not os.environ.get(
 
 from langfuse import get_client, observe  # noqa: E402
 
+from langfuse_trace import attach_to_parent  # noqa: E402
+
 langfuse_client = get_client()
 
 
@@ -532,7 +534,10 @@ def main():
 
 if __name__ == "__main__":
     try:
-        exit_code = main()
+        # When launched by orchestrator.py, nest this whole run inside that
+        # run's trace; standalone, this is a no-op and tracing is unchanged.
+        with attach_to_parent(langfuse_client, name="context_agent"):
+            exit_code = main()
     finally:
         langfuse_client.flush()
     sys.exit(exit_code)
