@@ -3,7 +3,7 @@ id: doc.known_issues
 kind: known_issues
 status: verified
 confidence: high
-source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size; out/03_status_sharing/load_report.md — D2 verdict for 3 of spec 03's 5 tables; out/03_status_sharing/analysis/q01.md–q04.md — D1/D2 re-confirmation, recipient_is_new_user self-contradiction (D3-shaped); out/04_abondon_checkout_recovery_2/load_report.md — D2 verdict for all 6 of spec 04's tables; out/04_checkout_recovery_3/load_report.md — identical D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication found), K5 re-test (push wins end-to-end), recovery-rate-by-drop_step, timing (hours_since_drop) has no effect, recovery-targeting-mismatch finding; out/05_instant_forex/load_report.md — D2 verdict for all 5 of spec 05's tables; out/05_instant_forex/analysis/q01.md–q04.md — D1/D2 re-confirmation, verified attach rate, AOV, drop-location, destination/currency/device/geo skew
+source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size; out/03_status_sharing/load_report.md — D2 verdict for 3 of spec 03's 5 tables; out/03_status_sharing/analysis/q01.md–q04.md — D1/D2 re-confirmation, recipient_is_new_user self-contradiction (D3-shaped); out/04_abondon_checkout_recovery_2/load_report.md — D2 verdict for all 6 of spec 04's tables; out/04_checkout_recovery_3/load_report.md — identical D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication found), K5 re-test (push wins end-to-end), recovery-rate-by-drop_step, timing (hours_since_drop) has no effect, recovery-targeting-mismatch finding; out/05_instant_forex/load_report.md — D2 verdict for all 5 of spec 05's tables; out/05_instant_forex/analysis/q01.md–q04.md — D1/D2 re-confirmation, verified attach rate, AOV, drop-location, destination/currency/device/geo skew; out/06_unseen_spec_2/load_report.md — D2 verdict for all 6 of spec 06's tables; out/06_unseen_spec_2/analysis/q01.md–q04.md — D2 re-confirmation, verified apply rate, reversed conversion lift, margin cost, segment cuts
 last_verified: 2026-08-02
 links: [doc.relationship, doc.business, metrics.index, tables.index]
 ---
@@ -173,6 +173,7 @@ FROM clickathon.<new_table>
 | **03 — Visa Status Sharing** | `share_clicked`, `channel_selected`, `link_generated` (3 of 5 — the other 2 carry no `application_id`) | **0.0%** (all 3) | **STOP** — analyse standalone | 2026-08-02 |
 | **04 — Abandoned Checkout Recovery** | `abandonment_detected`, `reminder_sent`, `reminder_opened`, `reminder_cta_clicked`, `resumed_at_step`, `reconverted` (all 6) | **0.0%** (all 6) | **STOP** — analyse standalone | 2026-08-02 |
 | **05 — Instant Forex Add-on** | `forex_offer_shown`, `currency_selected`, `amount_entered`, `forex_added_to_cart`, `forex_purchased` (all 5) | **0.0%** (all 5) | **STOP** — analyse standalone | 2026-08-02 |
+| **06 — Promo / Coupon at Checkout (sealed, unseen)** | `coupon_field_shown`, `coupon_entered`, `coupon_applied`, `coupon_rejected`, `discount_shown`, `checkout_with_coupon` (all 6) | **0.0%** (all 6) | **STOP** — analyse standalone | 2026-08-02 |
 
 Source: `out/01_express_checkout/load_report.md`. The normalize step ran
 (dashes inserted, 32→36 chars) and the verify query ran against
@@ -303,6 +304,29 @@ the broken `application_id` join. No question found a working path back
 to `application_started` or the main funnel — every finding in q01–q04
 (attach rate, AOV, drop location, destination/currency/device/geo skew)
 is scoped to the forex flow standalone, as D2 requires.
+
+**2026-08-02 — spec 06 (Promo / Coupon at Checkout, sealed/unseen)
+confirms the same pattern a seventh time, on all 6 of its tables.**
+Source: `out/06_unseen_spec_2/load_report.md`. The normalize step ran on
+`coupon_field_shown`/`coupon_entered`/`coupon_applied`/`coupon_rejected`/
+`discount_shown`/`checkout_with_coupon` — all 6 carry `application_id` on
+100% of rows — and the verify query ran against `application_started` —
+**none matched** (`overlap_pct = 0.0%` on all 6). Do not join any of this
+spec's tables to the main funnel via `application_id`. See
+[relationship.md](relationship.md) and
+[tables/coupon_field_shown.md](tables/coupon_field_shown.md) and its 5
+sibling pages.
+
+**2026-08-02 — independently re-confirmed by all 4 of the Analysis
+Agent's questions for spec 06** (`out/06_unseen_spec_2/analysis/
+q01.md`–`q04.md`), each of which stayed within the coupon flow's own 6
+tables (joined on `user_id` instead, safe per D6) rather than attempting
+the broken `application_id` join. No question found a working path back
+to `application_started` or the main funnel — every finding in q01–q04
+(apply rate, conversion lift, margin cost, segment cuts) is scoped to the
+coupon flow standalone, as D2 requires. See
+[metrics/coupon_apply_rate.md](metrics/coupon_apply_rate.md) and
+[metrics/coupon_conversion_lift.md](metrics/coupon_conversion_lift.md).
 
 ## D3 — Capture-quality flag contradicts itself ⛔ CRITICAL
 

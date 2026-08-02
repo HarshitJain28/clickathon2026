@@ -13,6 +13,123 @@ links: [doc.index, doc.known_issues]
 Append-only, newest first. Every entry names the evidence behind the change.
 Git history is the authoritative diff; this is the readable summary.
 
+## 2026-08-02 — Spec `06_unseen_spec_2` (Promo/Coupon): first analysis run consolidated
+
+Four `out/06_unseen_spec_2/analysis/qNN.md` files now exist and are
+consolidated into the wiki (no new tables — all 6 Promo/Coupon tables from
+the prior instrumentation entry below remain unchanged). Findings:
+
+- **`q01.md`** — verifies the full `coupon_field_shown → coupon_entered →
+  coupon_applied`/`coupon_rejected` chain by `uniqExact(user_id)` set
+  membership (D1-safe): 100% nesting, and `coupon_applied` (580) +
+  `coupon_rejected` (268) = 848 confirmed an exact, non-overlapping
+  partition of `coupon_entered` (not a row-count coincidence). Apply rate
+  (field_shown → applied) = **27.62%**; top reject reasons confirmed
+  (`min_cart_not_met` 29.85%, `already_used` 27.99%, `expired` 22.39%,
+  `invalid_code` 19.78%).
+- **`q02.md`** — computes the PM's conversion-lift question and finds it
+  **reversed**: the no-coupon baseline reaches `checkout_with_coupon` at
+  49.60% (621/1,252) vs. the coupon-entering cohort's 43.16% (366/848) —
+  ~6.4pp *lower*, driven by 100% of rejected users (268) dropping out
+  completely. This join runs `coupon_applied → checkout_with_coupon`
+  directly (63.10%, 366/580), **bypassing `discount_shown`** — that
+  table's own position in the chain (and its flagged 580/580 1:1 pairing
+  with `coupon_applied`) remains unconfirmed by any of the 4 files.
+- **`q03.md`** — margin cost by `coupon_code` from `coupon_applied`
+  (D7-safe, grouped by currency): SUMMER20 is the top cost driver on both
+  volume and total discount (INR: 82 uses, ₹87,088); FREESHIP records ₹0
+  discount on every use; ATLYS15 has disproportionately high per-use cost.
+  Flags a reconciliation gap: `checkout_with_coupon`'s own `discount_amount`
+  per code (366-row population) does not match `coupon_applied`'s (580-row
+  population) for the same codes (e.g. SUMMER20 ₹47,262 vs. ₹87,088).
+- **`q04.md`** — segment cuts confirm `EXPIRED5` fails 100% of the time in
+  every device/geo/destination cut (149 attempts, 0 applied); the other 5
+  codes cluster 60–100% success per segment; India dominates volume
+  (70–93 attempts/code) with 78–91% success; other geos too thin (n<20) to
+  trust individually.
+
+D2's STOP verdict (0% `application_id` overlap) is independently
+re-confirmed by all 4 files — none found a working join to
+`application_started`; every finding above is scoped to the coupon flow
+standalone.
+
+Wiki changes: added `metrics/coupon_apply_rate.md` and
+`metrics/coupon_conversion_lift.md` (new, reusable metrics; entries added
+to `metrics/index.md`); updated all 6 `tables/coupon_*.md` /
+`discount_shown.md` / `checkout_with_coupon.md` pages (step-through
+figures upgraded from unverified row-count ratios to verified
+set-membership joins where confirmed; `discount_shown`'s pairing left
+explicitly flagged as still-unconfirmed); updated `tables/index.md`'s
+Promo/Coupon row and `✦` footnote; updated `known_issues.md` → D2's spec-06
+entry with the independent re-confirmation; updated `index.md`'s total-rows
+note. No known-issue verdict was reversed; no claim was deleted.
+**Not yet run:** a direct `coupon_applied` ↔ `discount_shown`
+set-membership check — the one open question this spec's 6 tables still
+carry.
+
+Evidence: `out/06_unseen_spec_2/analysis/q01.md`–`q04.md`,
+`out/06_unseen_spec_2/ddl.sql`, `out/06_unseen_spec_2/justification.md`,
+`out/06_unseen_spec_2/load_report.md` (unchanged from the prior
+instrumentation pass).
+
+## 2026-08-02 — Spec `06_unseen_spec_2` (sealed): Promo / Coupon at Checkout instrumented, no analysis yet
+
+`out/06_unseen_spec_2/ddl.sql` creates **6 new tables** (`coupon_field_shown`,
+`coupon_entered`, `coupon_applied`, `coupon_rejected`, `discount_shown`,
+`checkout_with_coupon`), all `CREATE TABLE`, no `ALTER`. `justification.md`
+explicitly checked and rejected merging `checkout_with_coupon` into the two
+existing baseline tables that already carry coupon-shaped columns
+(`pay_now_clicked.coupon_applied`, `purchase_completed.coupon_applied`/
+`coupon_name`/`discount_amount`) — precedent (0-for-25 ALTERs across specs
+01–05), grain mismatch, and no instruction calling for a schema-level
+merge. Rows loaded (`load_report.md`): `coupon_field_shown` 2,100;
+`coupon_entered` 848; `coupon_applied` 580; `coupon_rejected` 268;
+`discount_shown` 580; `checkout_with_coupon` 987 (987 = 621 no-coupon
+baseline + 366 with-coupon, the PM's conversion-lift split). D2 verify ran
+on all 6 tables — **`overlap_pct = 0.0%`, STOP** — same verdict as specs
+01–05; this flow does not join the main funnel via `application_id`
+(`known_issues.md` → D2 updated with a 7th spec entry). Physical layout
+follows D8 on all 6, splitting the leading sort-key discriminator between
+`device_type` (`coupon_field_shown`, no `coupon_code` yet), `coupon_code`
+(4 tables — the PM's central dimension), and `reject_reason`
+(`coupon_rejected` — the PM's "top reject reasons" cut); `checkout_with_coupon`
+additionally requires `allow_nullable_key = 1` since its leading
+`coupon_code` is `Nullable` by design.
+
+Two row-count coincidences flagged (unverified, no live join run):
+`coupon_applied` (580) + `coupon_rejected` (268) = `coupon_entered`'s row
+count (848) exactly; `coupon_applied` and `discount_shown` share an
+identical 580-row count and matching `profile.md` distributions — the
+same shape spec 03's `channel_selected`/`link_generated` and spec 05's
+`currency_selected`/`amount_entered` turned out to be true 1:1 pairings.
+
+**No `analysis/qNN.md` files exist yet for this spec** — the Analysis
+Agent has not run for spec 06 (question_extractor.py hasn't produced
+output). All 6 new table pages carry `status: verified` (rows loaded + D2
+verdict are both live-DB measurements from `load_report.md`), but every
+step-through/segment figure on them remains an unverified row-count ratio
+pending a live query. `relationship.md` was **not** updated — this spec's
+entities were not previously named in its "Entities the incoming specs
+will add" list (spec 06 was sealed/unseen, unlike specs 02–05), so no
+prior placeholder exists to update, per this wiki's update-trigger rule.
+
+Updated: `tables/coupon_field_shown.md`, `tables/coupon_entered.md`,
+`tables/coupon_applied.md`, `tables/coupon_rejected.md`,
+`tables/discount_shown.md`, `tables/checkout_with_coupon.md` (all new),
+`tables/index.md` (6 new rows, `✦` footnote, physical-layout paragraph,
+total rows 2,510,100 → 2,515,463, table count 33 → 39),
+`known_issues.md` → D2 (7th spec entry), `index.md` (verified-environment
+table). Evidence: `out/06_unseen_spec_2/ddl.sql`,
+`out/06_unseen_spec_2/justification.md`, `out/06_unseen_spec_2/profile.md`,
+`out/06_unseen_spec_2/load_report.md`.
+
+**Open for next pass:** the `application_id`/`user_id` overlap question is
+resolved (STOP, standalone), but the coupon funnel's own step-through
+ratios, the two flagged 1:1/partition coincidences, and the PM's headline
+conversion-lift split (`checkout_with_coupon`, coupon vs. no-coupon) all
+need a live `analysis/qNN.md` query before any of them can move past
+"unverified row-count ratio."
+
 ## 2026-08-02 — Spec `05_instant_forex`: 4 analysis questions consolidated
 
 `out/05_instant_forex/analysis/q01.md`–`q04.md` (all 4 present) answer the
