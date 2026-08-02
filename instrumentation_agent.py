@@ -133,49 +133,66 @@ nullability — cite the specific profiler statistic (presence %, null %,
 distinct count, uniqueness ratio, numeric range, sampled value lengths, or the
 low_cardinality hint) that justifies each choice.
 
-## Required reading, in this order
+## Reading policy — index-first, open pages only on match
 
-1. `{CONTEXT_DIR / 'index.md'}` — orientation, ground rule that the live DB
-   wins over `base_context.md` on data facts.
-2. `{CONTEXT_DIR / 'tables' / 'index.md'}` — the shared 30-column envelope
-   already used by the 8 existing raw event tables, and their physical
-   layout (`ENGINE`, `PARTITION BY`, `ORDER BY`). Then open the specific
-   `{CONTEXT_DIR / 'tables'}/<name>.md` page for any existing table your
-   spec's events might extend (see step 3) — these pages sometimes state an
-   explicit instrumentation instruction (e.g. "should be instrumented
-   consistently with [existing add-on columns]"). That sentence is a direct
-   design instruction, not background color — follow it.
-3. `{BASE_DATA_DIR / 'ddl.sql'}` and `{BASE_DATA_DIR / 'instrumentation_notes.md'}`
-   — the actual production DDL of the 8 existing tables and how each is
-   populated. This is ground truth for two things:
-   - **Column style baseline**: the real tables use plain `String` /
-     `Nullable(String)` throughout — no `LowCardinality`, no `Enum`, no
-     `FixedString` anywhere. When you improve on this for a *new* table,
-     that's a deliberate upgrade you must justify against the skill's rules
-     (see "String-type decision" below), not an unexamined default.
-   - **CREATE vs ALTER candidates**: read every existing table's column list
-     so you can recognize when a spec's event is actually a new attribute of
-     an existing event rather than a new event stream (see next section).
-4. `{CONTEXT_DIR / 'known_issues.md'}` — read this in full, every run. It
-   documents data traps and known-issue verdicts, and the context wiki is
-   expected to keep growing, so nothing about its current contents is
-   hardcoded here. Whatever it marks as a mandatory constraint (a required
-   normalization, a required pre-deployment check, a sort-key anti-pattern
-   to avoid, etc.) applies to every table you design — treat it as
-   non-negotiable and cite the specific entry by its own identifier in
-   justification.md.
-5. `{CONTEXT_DIR / 'relationship.md'}` — entities, join map, and key
-   formats. Check whether the new spec introduces an entity or column that
-   conflicts with or duplicates something already documented here before
-   creating a parallel model, and cite the specific section that applies.
-6. Whatever the "Skills available" section below points you to — for
-   materialized views specifically, use it to decide whether an MV is
-   warranted at all, not just how to write one if you build one. Most single
-   raw-event tables need NO materialized view; only propose one if the
-   spec's "Questions the PM will ask" implies a repeated aggregation (e.g. a
-   funnel rate, an hourly/daily rollup, a segment breakdown computed on
-   every dashboard load) that would otherwise re-scan the raw table every
-   query.
+`{CONTEXT_DIR / 'index.md'}`, `{CONTEXT_DIR / 'tables' / 'index.md'}`, and
+`{CONTEXT_DIR / 'metrics' / 'index.md'}` are reloaded in your prompt below —
+do not Read them again. They are your map: orientation, the shared
+30-column envelope already used by the 8 existing raw event tables and their
+physical layout (`ENGINE`, `PARTITION BY`, `ORDER BY`), and the existing
+reusable metric definitions. The ground rule from the preloaded root index
+still applies: the live DB wins over `base_context.md` on data facts.
+
+Open a full wiki page with `Read` ONLY when at least one of these holds:
+
+1. Its index line names a table, column, entity, metric, or issue that this
+   spec's events actually touch.
+2. You need it to make a specific design call (e.g. an existing table's page
+   for any table your spec's events might extend — these pages sometimes
+   state an explicit instrumentation instruction such as "should be
+   instrumented consistently with [existing add-on columns]"; that sentence
+   is a direct design instruction, not background color — follow it. Or a
+   metric page whose formula an MV you're proposing should pre-compute).
+3. A page you already opened links to it and the link is load-bearing for a
+   decision you're making.
+
+Never open every page in a directory "for completeness" — the indexes exist
+precisely so you don't have to. Specifically:
+
+- `{BASE_DATA_DIR / 'ddl.sql'}` and `{BASE_DATA_DIR / 'instrumentation_notes.md'}`
+  — always read in full, every run (not part of the wiki, so not preloaded).
+  This is the actual production DDL of the 8 existing tables and how each is
+  populated — ground truth for two things:
+  - **Column style baseline**: the real tables use plain `String` /
+    `Nullable(String)` throughout — no `LowCardinality`, no `Enum`, no
+    `FixedString` anywhere. When you improve on this for a *new* table,
+    that's a deliberate upgrade you must justify against the skill's rules
+    (see "String-type decision" below), not an unexamined default.
+  - **CREATE vs ALTER candidates**: read every existing table's column list
+    so you can recognize when a spec's event is actually a new attribute of
+    an existing event rather than a new event stream (see next section).
+- `{CONTEXT_DIR / 'known_issues.md'}` — read this in full, every run (it's
+  short and mandatory-constraint-bearing, unlike the other wiki pages). It
+  documents data traps and known-issue verdicts, and the context wiki is
+  expected to keep growing, so nothing about its current contents is
+  hardcoded here. Whatever it marks as a mandatory constraint (a required
+  normalization, a required pre-deployment check, a sort-key anti-pattern to
+  avoid, etc.) applies to every table you design — treat it as
+  non-negotiable and cite the specific entry by its own identifier in
+  justification.md.
+- `{CONTEXT_DIR / 'relationship.md'}` — open only if this spec plausibly
+  introduces an entity or column that conflicts with or duplicates something
+  already documented there (check against the preloaded indexes' entity/
+  table names first); cite the specific section that applies.
+- Whatever the "Skills available" section below points you to — for
+  materialized views specifically, use it to decide whether an MV is
+  warranted at all, not just how to write one if you build one. Most single
+  raw-event tables need NO materialized view; only propose one if the
+  spec's "Questions the PM will ask" implies a repeated aggregation (e.g. a
+  funnel rate, an hourly/daily rollup, a segment breakdown computed on every
+  dashboard load) that would otherwise re-scan the raw table every query —
+  check the preloaded `metrics/index.md` first for a reusable definition to
+  build the MV around before inventing a new aggregation shape.
 
 {skills_section}
 
@@ -193,8 +210,8 @@ moment/grain?
   <existing_table> ADD COLUMN ...`.** Signals to look for: the spec's prose
   describing the new fields as arriving at the same moment as an existing
   step rather than as a separate occurrence of their own; the existing
-  table's context page explicitly calling out the pattern (see step 2
-  above); or the new fields being a natural peer of columns that table
+  table's context page explicitly calling out the pattern (see the reading
+  policy above); or the new fields being a natural peer of columns that table
   already has, in the same spirit as its existing optional/add-on columns
   — read that table's actual column list to judge this, don't assume from
   a remembered example. In that case:
@@ -365,6 +382,31 @@ def ensure_profile(spec_dir: Path, out_dir: Path) -> Path:
     return profile_path
 
 
+def _preload_wiki_files(context_dir: Path) -> str:
+    """Read the wiki's always-needed files and return them as clearly
+    delimited blocks to inline into the prompt, so the agent doesn't spend a
+    Read round-trip on files it needs on every single run."""
+    blocks = []
+
+    index_path = context_dir / "index.md"
+    blocks.append(f"### context/index.md\n{index_path.read_text(encoding='utf-8')}")
+
+    tables_index_path = context_dir / "tables" / "index.md"
+    blocks.append(
+        f"### context/tables/index.md\n{tables_index_path.read_text(encoding='utf-8')}"
+    )
+
+    metrics_index_path = context_dir / "metrics" / "index.md"
+    if metrics_index_path.exists():
+        blocks.append(
+            f"### context/metrics/index.md\n{metrics_index_path.read_text(encoding='utf-8')}"
+        )
+
+    return "## Preloaded wiki files — already provided, do NOT Read these again\n\n" + "\n\n".join(
+        blocks
+    )
+
+
 def build_prompt(spec_path: Path, profile_path: Path, out_dir: Path) -> str:
     return f"""Design the ClickHouse DDL for this feature spec.
 
@@ -372,7 +414,9 @@ def build_prompt(spec_path: Path, profile_path: Path, out_dir: Path) -> str:
 - profile.md: {profile_path}
 - write ddl.sql and justification.md into: {out_dir}
 
-Follow the required reading order and output format from your system prompt.
+Follow the reading policy and output format from your system prompt.
+
+{_preload_wiki_files(CONTEXT_DIR)}
 """
 
 

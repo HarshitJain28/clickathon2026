@@ -155,43 +155,39 @@ the MCP server's own `list_databases`/`list_tables` tools to confirm rather
 than assuming they're still correct forever — the wiki is a snapshot, the
 live database is the current truth.
 
-## Orient via the wiki first — index-driven, not a full-wiki read
+## Reading policy — index-first, open pages only on match
 
-Read the context wiki *before* touching the MCP server, but do it the way
-`{context_dir / 'SCHEMA.md'}` itself prescribes: orient through index files
-and only open the specific pages this question needs. Scanning the whole
-wiki on every question burns tokens for no benefit — the indexes exist
+`{context_dir / 'index.md'}`, `{context_dir / 'tables' / 'index.md'}`, and
+`{context_dir / 'metrics' / 'index.md'}` are reloaded in your prompt below —
+do not Read them again. They are your map. You are read-only against
+`{context_dir}`, so the rule is simple: open a full wiki page with `Read`
+only if its index line names a table, column, entity, or metric relevant to
+this question, or a cited known-issue id requires checking its entry. Never
+open every page in a directory "for completeness" — the indexes exist
 precisely so you don't have to.
 
-1. Always read `{context_dir / 'index.md'}` first, in full — it's short by
-   design: verified environment, directory map, and one-sentence pointers to
-   everything else. This is the only file you unconditionally read cover to
-   cover.
-2. From the question's subject (which metric, entity, table, or column it's
-   actually about), decide what else you need, and open only that:
-   - Question names or implies an existing metric (conversion, funnel,
-     revenue, step-through, drop-off, etc.) → read
-     `{context_dir / 'metrics' / 'index.md'}` (one-sentence descriptions per
-     metric), then open only the specific metric page(s) that match. Reuse
-     its formula instead of re-deriving one from scratch; cite the page.
-   - Question names or implies specific tables/events → read
-     `{context_dir / 'tables' / 'index.md'}` (shared envelope + table list)
-     first, then open only the specific `{context_dir / 'tables'}/<name>.md`
-     page(s) for tables the question actually touches — not all of them.
-   - Question involves a join, an entity, or a relationship between two
-     things → read `{context_dir / 'relationship.md'}`.
-3. `{context_dir / 'known_issues.md'}` — skim its structure first (the D-trap
-   headings and the K-issue verdict table are compact and index-like), then
-   read in full only the specific entries whose subject overlaps this
-   question's tables/metrics/columns. Never silently skip this file, but
-   don't pay to read entries that plainly can't apply to what you're
-   answering either. The wiki keeps growing, so nothing about which entries
-   exist is hardcoded here — decide relevance from what you actually see,
-   not from a remembered list.
-4. If a page you opened links to another page that's clearly relevant to
-   this specific question, follow that link. Otherwise don't — a link is an
-   option to chase only when it matters here, not an obligation to read the
-   whole graph.
+- Question names or implies an existing metric (conversion, funnel, revenue,
+  step-through, drop-off, etc.) → open only the specific
+  `{context_dir / 'metrics'}/<name>.md` page(s) the preloaded metrics index
+  names as matching. Reuse its formula instead of re-deriving one from
+  scratch; cite the page.
+- Question names or implies specific tables/events → open only the specific
+  `{context_dir / 'tables'}/<name>.md` page(s) for tables the question
+  actually touches, per the preloaded tables index — not all of them.
+- Question involves a join, an entity, or a relationship between two things
+  → read `{context_dir / 'relationship.md'}`.
+- `{context_dir / 'known_issues.md'}` — skim its structure first (the D-trap
+  headings and the K-issue verdict table are compact and index-like), then
+  read in full only the specific entries whose subject overlaps this
+  question's tables/metrics/columns. Never silently skip this file, but
+  don't pay to read entries that plainly can't apply to what you're
+  answering either. The wiki keeps growing, so nothing about which entries
+  exist is hardcoded here — decide relevance from what you actually see, not
+  from a remembered list.
+- If a page you opened links to another page that's clearly relevant to this
+  specific question, follow that link. Otherwise don't — a link is an option
+  to chase only when it matters here, not an obligation to read the whole
+  graph.
 
 ## Synthesize before you call the MCP server
 
@@ -290,7 +286,32 @@ and whether you also produced an HTML report and why (or why not).
 """
 
 
-def build_prompt(question: str, md_path: Path, html_path: Path) -> str:
+def _preload_wiki_files(context_dir: Path) -> str:
+    """Read the wiki's always-needed files and return them as clearly
+    delimited blocks to inline into the prompt, so the agent doesn't spend a
+    Read round-trip on files it needs on every single run."""
+    blocks = []
+
+    index_path = context_dir / "index.md"
+    blocks.append(f"### context/index.md\n{index_path.read_text(encoding='utf-8')}")
+
+    tables_index_path = context_dir / "tables" / "index.md"
+    blocks.append(
+        f"### context/tables/index.md\n{tables_index_path.read_text(encoding='utf-8')}"
+    )
+
+    metrics_index_path = context_dir / "metrics" / "index.md"
+    if metrics_index_path.exists():
+        blocks.append(
+            f"### context/metrics/index.md\n{metrics_index_path.read_text(encoding='utf-8')}"
+        )
+
+    return "## Preloaded wiki files — already provided, do NOT Read these again\n\n" + "\n\n".join(
+        blocks
+    )
+
+
+def build_prompt(question: str, md_path: Path, html_path: Path, context_dir: Path) -> str:
     return f"""Answer this PM question against the live ClickHouse database.
 
 Question: {question}
@@ -299,9 +320,11 @@ Question: {question}
 - Only if this question explicitly asks for a report/visualization (per your
   system prompt's Output section), also write the HTML report to: {html_path}
 
-Follow the required reading order, the "data may not exist yet" check, the
+Follow the reading policy, the "data may not exist yet" check, the
 wiki-update rule (only where genuinely warranted), and the output rules from
 your system prompt.
+
+{_preload_wiki_files(context_dir)}
 """
 
 
@@ -456,7 +479,7 @@ def main():
     else:
         print(f"no skills found under {VENDORED_SKILLS_DIR}", file=sys.stderr)
 
-    prompt = build_prompt(args.question, md_path, html_path)
+    prompt = build_prompt(args.question, md_path, html_path, context_dir)
     summary = asyncio.run(
         run_agent(
             prompt, out_dir, context_dir, args.service_id, args.database, skill_names

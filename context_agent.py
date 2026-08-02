@@ -20,7 +20,8 @@ question_extractor.py runs, so the wiki carries this spec's schema/
 known-issue caveats for the Analysis Agent to orient from; once again after
 question_extractor.py finishes, to consolidate its qNN.md findings. Both
 calls are identical (this script doesn't need to know which pass it is —
-step 9 below is simply a no-op if <out_dir>/analysis doesn't exist yet).
+consolidating analysis/qNN.md findings is simply a no-op if <out_dir>/analysis
+doesn't exist yet).
 
 Usage:
     python context_agent.py <out_dir> [--context-dir DIR]
@@ -132,8 +133,9 @@ Your job here has two parts, both against the SAME output directory: (1)
 given the Instrumentation Agent's output (a new or altered set of ClickHouse
 tables), update the wiki so it accurately reflects what was just
 instrumented; (2) given the Analysis Agent's qNN.md answer files (if any
-exist yet for this spec — see step 8 below), consolidate their live-query
-findings into the wiki. You are the ONLY agent that writes to `{context_dir}`
+exist yet for this spec — see "Consolidating analysis/qNN.md findings"
+below), consolidate their live-query findings into the wiki. You are the
+ONLY agent that writes to `{context_dir}`
 — the Analysis Agent is read-only there by design, precisely so this
 consolidation can happen safely in one single-writer pass instead of several
 concurrent ones.
@@ -143,9 +145,10 @@ to you. Never claim to have verified or re-tested a live data claim on your
 own authority (a known_issues.md verdict, a row count you didn't get from
 profile.md/justification.md/load_report.md/a qNN.md file, etc).
 
-The exceptions: `load_report.md` (see step 7 below) and any `analysis/qNN.md`
-files (see step 8 below) ARE live-DB evidence — the Loader's own record of a
-real run, and the Analysis Agent's own record of a real query, respectively.
+The exceptions: `load_report.md` and any `analysis/qNN.md` files (both
+described in the reading policy below) ARE live-DB evidence — the Loader's
+own record of a real run, and the Analysis Agent's own record of a real
+query, respectively.
 Neither was produced by you. You may cite either as a measurement
 (`source: load_report.md — <query/verdict named there>` or `source:
 out/<spec>/analysis/qNN.md — <finding named there>`) and write
@@ -153,81 +156,70 @@ out/<spec>/analysis/qNN.md — <finding named there>`) and write
 states, and you still may not invent
 or re-derive a number it doesn't contain.
 
-## Orient via index files first — do not full-read the wiki
+## Reading policy — index-first, open pages only on match
 
-The wiki keeps growing every time a spec runs (more table pages, a longer
-`known_issues.md`, a longer `log.md`), so unconditionally reading every file
-in full, every run, gets slower and more expensive over time for no benefit.
-Traverse it the way `{context_dir / 'SCHEMA.md'}` itself prescribes: read
-`index.md`, then only the directory index you need, then open only the
-specific pages relevant to *this spec* — never scan the whole wiki.
+The wiki's rulebook (`SCHEMA.md`), root index, and directory indexes are
+reloaded in your prompt — do not Read them again. They are your map.
 
-1. `{context_dir / 'SCHEMA.md'}` — always read in full first. It's short by
-   design and is the rules you must follow: frontmatter contract (the
-   required-fields list is defined there — read it, don't assume it),
-   create-vs-update policy (create only for a genuinely new table;
-   everything else updates in place; never create `_v2` pages — git holds
-   history), the "Update triggers" table, the "Update workflow", and the
-   lint checklist.
-2. `{context_dir / 'index.md'}` — always read in full next. Short by design:
-   verified environment, directory map, one-sentence pointers to everything
-   else, and the ground rule that the live DB wins over `base_context.md` on
-   data facts (moot for you today since you have no DB access, but don't
-   contradict it either).
-3. `{tables_dir / 'index.md'}` — always read in full (it's the shared
-   30-column envelope + a compact table list, not the individual pages).
-   From `ddl.sql`, you already know which tables this spec creates or
-   alters — open only the **specific existing** `{tables_dir}/<name>.md`
-   page(s) for any table being `ALTER`'d (you need its current column table
-   and cross-reference style to edit it correctly). Do not open every
-   existing table's page "for context" — only the ones this spec's `ddl.sql`
-   actually touches. New table pages you write should not restate envelope
-   columns already documented in `tables/index.md`.
-4. `{context_dir / 'relationship.md'}` — skim its section headings first
-   (short, index-like: one heading per entity). Read the "Entities the
-   incoming specs will add" section in full only if it plausibly names an
-   entity this spec introduces (check against `spec`/`ddl.sql`/
-   `justification.md`'s own entity/column names) — if this spec introduces no
-   new entity, you don't need to open this file's body at all beyond that
-   section heading check.
-5. `{context_dir / 'known_issues.md'}` — skim its structure first (the D-trap
-   headings and the K-issue verdict table read like an index on their own),
-   then read in full only the specific entries `justification.md` itself
-   already cites by identifier, plus any entry whose subject obviously
-   overlaps this spec's tables/columns. Do not read every entry every run —
-   the file only gets longer over time and most entries won't apply to any
-   given spec.
-6. Top of `{context_dir / 'log.md'}` — the most recent 1-2 entries only, for
-   changelog style/format. Never read the whole file; it's append-only and
-   only grows.
-7. Then, from the given output directory: `ddl.sql`, `justification.md`, and
-   `profile.md` — the actual DDL, the reasoning behind it, and the profiler
-   statistics it was built on. Note `ddl.sql` now qualifies every statement
-   as `clickathon.<table>` and uses `CREATE TABLE IF NOT EXISTS` /
-   `ADD COLUMN IF NOT EXISTS` for idempotency — use the bare `<table>` name
-   (stripped of the `clickathon.` prefix) for page filenames and titles,
-   matching the existing table pages' convention.
-8. `load_report.md` from the same output directory, if present (the Loader
-   may not have produced one, e.g. if it ran before this change existed) —
-   rows actually loaded per table, which known_issues.md normalizations
-   fired, and the result/verdict of any verification query it ran. When a
-   table's row count and a verified/refuted known_issues.md verdict appear
-   here, use them — don't leave a page saying "manual check needed" when
-   load_report.md already ran that check.
-9. Finally, every `analysis/qNN.md` file in the given output directory, if
-   the `analysis` subdirectory exists (question_extractor.py + the Analysis
-   Agent may not have run yet for this spec — that's fine, just skip this
-   step). Each is one PM question's Question/Answer pair, with its own query
-   and result already cited inline. Read all of them before writing anything,
-   the same way you'd read all of known_issues.md before editing it — a
-   finding in q03.md can bear on the same known_issues.md entry or table page
-   as q01.md, and you want the full, consistent picture before touching a
-   page twice.
+Open a full wiki page with `Read` ONLY when at least one of these holds:
+
+1. You are about to edit it (always read the current version before editing
+   — never edit from memory of the index line).
+2. Its index line names a table, column, entity, or issue that this run's
+   `ddl.sql` / `justification.md` actually touches.
+3. A page you already opened links to it and the link is load-bearing for a
+   decision you're making.
+
+Never open every page in a directory "for completeness" — the indexes exist
+precisely so you don't have to.
+
+- For `{tables_dir}/<name>.md` pages: from `ddl.sql`, you already know which
+  tables this spec creates or alters — open only the **specific existing**
+  `{tables_dir}/<name>.md` page(s) for any table being `ALTER`'d (you need
+  its current column table and cross-reference style to edit it correctly).
+  New table pages you write should not restate envelope columns already
+  documented in the preloaded `tables/index.md`.
+- For `{context_dir / 'known_issues.md'}`: open it only if `justification.md`
+  cites at least one issue id, or your edits need to add a structural note
+  there (it usually does — but that's the trigger, not routine reading).
+- For `{context_dir / 'relationship.md'}`: open it only if this spec's
+  entities or keys appear in it per the root index's description, or you
+  need to update it.
+- For `{context_dir / 'log.md'}`: the top entries are preloaded — that is
+  enough to match its changelog style/format when you append your entry.
+  Never Read the whole file; it's append-only and only grows.
+
+From the given output directory, `ddl.sql`, `justification.md`, and
+`profile.md` (and `load_report.md` if present) — these are always required:
+
+- `ddl.sql` and `justification.md` — the actual DDL and the reasoning behind
+  it. Note `ddl.sql` now qualifies every statement as `clickathon.<table>`
+  and uses `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` for
+  idempotency — use the bare `<table>` name (stripped of the `clickathon.`
+  prefix) for page filenames and titles, matching the existing table pages'
+  convention.
+- `profile.md` — the profiler statistics `ddl.sql` was built on.
+- `load_report.md`, if present (the Loader may not have produced one, e.g.
+  if it ran before this change existed) — rows actually loaded per table,
+  which known_issues.md normalizations fired, and the result/verdict of any
+  verification query it ran. When a table's row count and a
+  verified/refuted known_issues.md verdict appear here, use them — don't
+  leave a page saying "manual check needed" when load_report.md already ran
+  that check.
+- Every `analysis/qNN.md` file in the given output directory, if the
+  `analysis` subdirectory exists (question_extractor.py + the Analysis Agent
+  may not have run yet for this spec — that's fine, just skip this step).
+  Each is one PM question's Question/Answer pair, with its own query and
+  result already cited inline. Read all of them before writing anything, the
+  same way you'd read all of `known_issues.md` before editing it — a finding
+  in q03.md can bear on the same known_issues.md entry or table page as
+  q01.md, and you want the full, consistent picture before touching a page
+  twice.
 
 If, while writing, you discover you actually need something you skipped
 (e.g. an entry in `known_issues.md` you didn't originally read, or another
-table's page), go back and read it then — traversing via indexes means
-reading less by default, not guessing when something turns out to matter.
+table's page), go back and read it then — reading via indexes means reading
+less by default, not guessing when something turns out to matter.
 
 `Glob`/`Grep` are available for targeted lookups only — e.g. confirming an
 `id:` isn't already used elsewhere before creating a page, or finding which
@@ -269,7 +261,8 @@ whole wiki "for context"; that defeats the point of reading via indexes.
   users, step-through if derivable) and update the "Total" rows figure.
   Regenerate this index from its siblings' frontmatter as SCHEMA.md instructs.
 - **Update `{context_dir / 'relationship.md'}`** only if this spec's entities
-  were named in "Entities the incoming specs will add" (see step 4 above).
+  were named in "Entities the incoming specs will add" (see the reading
+  policy above).
 - **Update `{context_dir / 'known_issues.md'}`** for: a new table inheriting
   a risk an existing entry already describes (cite that entry's own
   identifier — don't invent a new one); noting that an existing entry is now
@@ -280,7 +273,7 @@ whole wiki "for context"; that defeats the point of reading via indexes.
   already models "> 90% proceed / 1–90% state coverage / 0% stop". Never
   write a verdict you didn't get from `load_report.md` or an existing page.
 
-**Consolidating `analysis/qNN.md` findings (step 9 above), if that directory
+**Consolidating `analysis/qNN.md` findings, if that directory
 exists — this is now your job, not the Analysis Agent's:**
 - A `known_issues.md` entry a qNN.md file re-tested with a live query: update
   its `status`/verdict text, citing that qNN.md file (and its query/result)
@@ -295,8 +288,8 @@ exists — this is now your job, not the Analysis Agent's:**
 - A table-specific caveat a qNN.md file newly confirmed or disproved: add a
   short note to that table's `tables/<name>.md` page, citing the qNN.md file.
 - If two or more qNN.md files bear on the same known-issue or table (read
-  all of them first, per step 9), reconcile them into one coherent update
-  rather than writing conflicting or duplicate notes.
+  all of them first, per the reading policy above), reconcile them into one
+  coherent update rather than writing conflicting or duplicate notes.
 - **Append exactly one new entry to `{context_dir / 'log.md'}`** — newest
   first, per its append-only convention — naming: which spec, which tables
   were created/altered, the key risks carried forward, which PM questions
@@ -333,6 +326,43 @@ and no qNN.md file covers it yet).
 """
 
 
+def _preload_wiki_files(context_dir: Path) -> str:
+    """Read the wiki's always-needed files and return them as clearly
+    delimited blocks to inline into the prompt, so the agent doesn't spend a
+    Read round-trip on files it needs on every single run."""
+    blocks = []
+
+    schema_path = context_dir / "SCHEMA.md"
+    blocks.append(
+        f"### context/SCHEMA.md\n{schema_path.read_text(encoding='utf-8')}"
+    )
+
+    index_path = context_dir / "index.md"
+    blocks.append(f"### context/index.md\n{index_path.read_text(encoding='utf-8')}")
+
+    tables_index_path = context_dir / "tables" / "index.md"
+    blocks.append(
+        f"### context/tables/index.md\n{tables_index_path.read_text(encoding='utf-8')}"
+    )
+
+    metrics_index_path = context_dir / "metrics" / "index.md"
+    if metrics_index_path.exists():
+        blocks.append(
+            f"### context/metrics/index.md\n{metrics_index_path.read_text(encoding='utf-8')}"
+        )
+
+    log_path = context_dir / "log.md"
+    log_lines = log_path.read_text(encoding="utf-8").splitlines()[:40]
+    blocks.append(
+        "### context/log.md (top 40 lines only — enough to match changelog style)\n"
+        + "\n".join(log_lines)
+    )
+
+    return "## Preloaded wiki files — already provided, do NOT Read these again\n\n" + "\n\n".join(
+        blocks
+    )
+
+
 def build_prompt(out_dir: Path, context_dir: Path) -> str:
     spec_name = out_dir.name
     analysis_dir = out_dir / "analysis"
@@ -345,7 +375,8 @@ def build_prompt(out_dir: Path, context_dir: Path) -> str:
     else:
         qna_note = (
             f"- analysis/: {analysis_dir} — does not exist yet (question_extractor.py "
-            "hasn't run for this spec, or has no output yet); skip step 9, nothing to consolidate"
+            "hasn't run for this spec, or has no output yet); skip analysis "
+            "consolidation, nothing to consolidate"
         )
     return f"""Update the Atlys context wiki to reflect the Instrumentation
 Agent's output for spec `{spec_name}`, and consolidate any Analysis Agent
@@ -358,7 +389,9 @@ findings for the same spec.
 {qna_note}
 - context wiki root: {context_dir}
 
-Follow the required reading order and update rules from your system prompt.
+Follow the reading policy and update rules from your system prompt.
+
+{_preload_wiki_files(context_dir)}
 """
 
 
