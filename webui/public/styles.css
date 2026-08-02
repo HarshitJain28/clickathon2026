@@ -775,6 +775,76 @@ details summary {
   border-top: 1px solid #2a2a2a;
   margin: 1.25rem 0;
 }
+
+/* ---- Onboarding history (persisted runs, browsable read-only) ---- */
+
+#onboardHistorySection {
+  margin-top: 2rem;
+}
+#onboardHistorySection h4 {
+  margin-bottom: 0.75rem;
+  color: #c9c9c9;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.onboard-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 640px;
+}
+.onboard-history-empty {
+  color: #6a6a6a;
+  font-size: 0.88rem;
+}
+.onboard-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  background-color: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #ececec;
+  font-size: 0.88rem;
+  text-align: left;
+  width: 100%;
+}
+.onboard-history-item:hover {
+  background-color: #202020;
+  border-color: #3a3a3a;
+}
+.onboard-history-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.onboard-history-status {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.onboard-history-status.status-done {
+  background-color: #1f4d33;
+  color: #d7f5e3;
+}
+.onboard-history-status.status-failed,
+.onboard-history-status.status-rejected {
+  background-color: #4a1f1f;
+  color: #f5d7d7;
+}
+.onboard-history-status.status-running,
+.onboard-history-status.status-awaiting_approval {
+  background-color: #2a2a2a;
+  color: #c9c9c9;
+}
+
 .back-btn {
   margin-top: 2rem;
   background: transparent;

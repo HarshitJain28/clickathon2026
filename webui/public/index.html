@@ -108,6 +108,28 @@
 
         <div id="onboardResults" class="onboard-results"></div>
 
+        <div id="onboardHistorySection">
+          <h4>Recent onboarding runs</h4>
+          <div id="onboardHistoryList" class="onboard-history-list"></div>
+        </div>
+
+        <div id="onboardHistoryDetail" class="approval-panel" style="display:none;">
+          <h3 id="onboardHistoryDetailTitle"></h3>
+          <p id="onboardHistoryDetailStatus" class="muted"></p>
+          <div class="approval-columns">
+            <div class="approval-col">
+              <div class="approval-col-label">ddl.sql</div>
+              <pre id="onboardHistoryDdl" class="log-box approval-code"></pre>
+            </div>
+            <div class="approval-col">
+              <div class="approval-col-label">justification.md</div>
+              <div id="onboardHistoryJustification" class="approval-justification content"></div>
+            </div>
+          </div>
+          <div id="onboardHistoryResults" class="onboard-results"></div>
+          <button id="closeHistoryDetailBtn" class="back-btn" type="button">← Close</button>
+        </div>
+
         <button id="backToChatBtn" class="back-btn" type="button">← Back to chat</button>
       </section>
     </main>

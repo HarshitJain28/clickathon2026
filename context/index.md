@@ -3,7 +3,7 @@ id: doc.index
 kind: index
 status: verified
 confidence: high
-source: clickathon@78f5870d (ClickHouse Cloud), verified against base_context.md; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — group completion-rate by size, churn analysis; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — share-flow completion rate, channel mix, recipient K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for all 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission of the same 6 tables; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication found), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding (see known_issues.md → D2, K5, tables/index.md)
+source: clickathon@78f5870d (ClickHouse Cloud), verified against base_context.md; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — group completion-rate by size, churn analysis; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — share-flow completion rate, channel mix, recipient K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for all 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission of the same 6 tables; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication found), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding; out/05_instant_forex/load_report.md — rows loaded and D2 overlap_pct for the 5 Instant Forex tables; out/05_instant_forex/analysis/q01.md–q04.md — verified full-funnel step-through, attach rate by destination/currency/device/geo, AOV (see known_issues.md → D1, D2, tables/index.md, metrics/forex_attach_rate.md, metrics/forex_addon_aov.md)
 last_verified: 2026-08-02
 links: [doc.schema, doc.business, doc.relationship, doc.known_issues, doc.log]
 ---
@@ -30,12 +30,12 @@ derived from data.
 |---|---|
 | Service | `78f5870d-894f-4405-bf4f-542014537dcb` (org *Edelweiss*, aws ap-south-1) |
 | Database | `clickathon` |
-| Tables | 28: 8 baseline raw event tables + 5 from spec 01 (Express Checkout) + 4 from spec 02 (Group / Family) + 5 from spec 03 (Visa Status Sharing) + 6 from spec 04 (Abandoned Checkout Recovery), **no views or materialized views** |
-| Total rows | 2,503,863 (2,480,481 baseline + 5,507 Express Checkout + 5,453 Group/Family + 6,503 Status Sharing + 5,919 Abandoned Checkout Recovery, verified via `load_report.md`) — the Abandoned Checkout Recovery figure was independently re-loaded 2026-08-02 under `out/04_checkout_recovery_3` with byte-identical row counts; whether that run also re-inserted the same rows (doubling the true total) was an open question, **now resolved 2026-08-02**: all 4 of `out/04_checkout_recovery_3/analysis/q01.md`–`q04.md` independently ran live counts and found no duplication — see [known_issues.md](known_issues.md) → D2 |
-| Data window | 2025-12-31 23:41 → 2026-07-01 03:01 (H1 2026 baseline); Express Checkout sample 2026-06-08 → 2026-06-28; Group/Family sample 2026-06-08 → 2026-06-28; Status Sharing sample 2026-06-08 06:00 → 2026-07-01 09:21; Abandoned Checkout Recovery sample 2026-06-08 06:01 → 2026-07-01 00:00 |
-| Engine | `SharedMergeTree` on the 8 baseline tables; `MergeTree` on the 20 spec tables (spec 01 + spec 02 + spec 03 + spec 04) |
-| Partitioning | `PARTITION BY toYYYYMM(timestamp)` on all 28 |
-| Sort key | `ORDER BY (id, timestamp, user_id)` on the 8 baseline tables ⚠ see D8; the 5 Express Checkout tables use D8's fix `(toDate(timestamp), device_type, user_id, id)`; the 4 Group/Family tables use a further D8-compliant variant `(toDate(timestamp), group_size, group_id, id)`; the 5 Status Sharing tables each substitute their own leading discriminator (`status_shared`/`channel`/`destination`); the 6 Abandoned Checkout Recovery tables substitute `drop_step` (3 tables) or `channel` (3 tables) — see [tables/index.md](tables/index.md) |
+| Tables | 33: 8 baseline raw event tables + 5 from spec 01 (Express Checkout) + 4 from spec 02 (Group / Family) + 5 from spec 03 (Visa Status Sharing) + 6 from spec 04 (Abandoned Checkout Recovery) + 5 from spec 05 (Instant Forex Add-on), **no views or materialized views** |
+| Total rows | 2,510,100 (2,480,481 baseline + 5,507 Express Checkout + 5,453 Group/Family + 6,503 Status Sharing + 5,919 Abandoned Checkout Recovery + 6,237 Instant Forex, verified via `load_report.md`) — the Abandoned Checkout Recovery figure was independently re-loaded 2026-08-02 under `out/04_checkout_recovery_3` with byte-identical row counts; whether that run also re-inserted the same rows (doubling the true total) was an open question, **now resolved 2026-08-02**: all 4 of `out/04_checkout_recovery_3/analysis/q01.md`–`q04.md` independently ran live counts and found no duplication — see [known_issues.md](known_issues.md) → D2 |
+| Data window | 2025-12-31 23:41 → 2026-07-01 03:01 (H1 2026 baseline); Express Checkout sample 2026-06-08 → 2026-06-28; Group/Family sample 2026-06-08 → 2026-06-28; Status Sharing sample 2026-06-08 06:00 → 2026-07-01 09:21; Abandoned Checkout Recovery sample 2026-06-08 06:01 → 2026-07-01 00:00; Instant Forex sample 2026-06-08 06:00 → 2026-06-28 23:12 |
+| Engine | `SharedMergeTree` on the 8 baseline tables; `MergeTree` on the 25 spec tables (spec 01 + spec 02 + spec 03 + spec 04 + spec 05) |
+| Partitioning | `PARTITION BY toYYYYMM(timestamp)` on all 33 |
+| Sort key | `ORDER BY (id, timestamp, user_id)` on the 8 baseline tables ⚠ see D8; the 5 Express Checkout tables use D8's fix `(toDate(timestamp), device_type, user_id, id)`; the 4 Group/Family tables use a further D8-compliant variant `(toDate(timestamp), group_size, group_id, id)`; the 5 Status Sharing tables each substitute their own leading discriminator (`status_shared`/`channel`/`destination`); the 6 Abandoned Checkout Recovery tables substitute `drop_step` (3 tables) or `channel` (3 tables); the 5 Instant Forex tables all substitute `destination` — see [tables/index.md](tables/index.md) |
 
 ## Contents
 
@@ -45,8 +45,8 @@ derived from data.
 | [business.md](business.md) | Business model, funnel, verified scale and trend |
 | [relationship.md](relationship.md) | Entities, join map, key formats, join integrity |
 | [known_issues.md](known_issues.md) | **Data traps (D1–D9) + known-issue verdicts (K1–K7)** |
-| [tables/](tables/index.md) | 22 table pages + the shared 30-column envelope |
-| [metrics/](metrics/index.md) | 7 metric pages with verified formulas and values |
+| [tables/](tables/index.md) | 33 table pages + the shared 30-column envelope |
+| [metrics/](metrics/index.md) | 9 metric pages with verified formulas and values |
 | [log.md](log.md) | Changelog |
 
 ## Frontmatter contract

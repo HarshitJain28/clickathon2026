@@ -3,7 +3,7 @@ id: doc.known_issues
 kind: known_issues
 status: verified
 confidence: high
-source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size; out/03_status_sharing/load_report.md — D2 verdict for 3 of spec 03's 5 tables; out/03_status_sharing/analysis/q01.md–q04.md — D1/D2 re-confirmation, recipient_is_new_user self-contradiction (D3-shaped); out/04_abondon_checkout_recovery_2/load_report.md — D2 verdict for all 6 of spec 04's tables; out/04_checkout_recovery_3/load_report.md — identical D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication found), K5 re-test (push wins end-to-end), recovery-rate-by-drop_step, timing (hours_since_drop) has no effect, recovery-targeting-mismatch finding
+source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size; out/03_status_sharing/load_report.md — D2 verdict for 3 of spec 03's 5 tables; out/03_status_sharing/analysis/q01.md–q04.md — D1/D2 re-confirmation, recipient_is_new_user self-contradiction (D3-shaped); out/04_abondon_checkout_recovery_2/load_report.md — D2 verdict for all 6 of spec 04's tables; out/04_checkout_recovery_3/load_report.md — identical D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication found), K5 re-test (push wins end-to-end), recovery-rate-by-drop_step, timing (hours_since_drop) has no effect, recovery-targeting-mismatch finding; out/05_instant_forex/load_report.md — D2 verdict for all 5 of spec 05's tables; out/05_instant_forex/analysis/q01.md–q04.md — D1/D2 re-confirmation, verified attach rate, AOV, drop-location, destination/currency/device/geo skew
 last_verified: 2026-08-02
 links: [doc.relationship, doc.business, metrics.index, tables.index]
 ---
@@ -115,6 +115,22 @@ every query so far jumps straight from `reminder_cta_clicked` (or
 ratios (100% of `reminder_cta_clicked`, 34.70% ÷ `reconverted`) remain
 **unverified** — see [resumed_at_step.md](tables/resumed_at_step.md).
 
+**2026-08-02 addendum (source: `out/05_instant_forex/analysis/q01.md`,
+`q03.md`, `q04.md`):** spec 05's 5-stage forex funnel
+(`forex_offer_shown → currency_selected → amount_entered →
+forex_added_to_cart → forex_purchased`) is now fully verified by set
+membership, and — unlike the main visa funnel — is confirmed **perfectly
+nested and 100% timestamp-monotonic** (all 546 matched
+`forex_offer_shown`/`forex_purchased` pairs have
+`forex_purchased.timestamp ≥ forex_offer_shown.timestamp`), so this
+funnel has no ordering trap of its own. `currency_selected` and
+`amount_entered`'s identical row counts are confirmed a true 1:1 pairing
+(100% step-through, direct join), not a coincidence. The overwhelming
+majority of the funnel's loss (64.38%, 1,867 users) happens at the very
+first step, `forex_offer_shown → currency_selected` — see
+[metrics/forex_attach_rate.md](metrics/forex_attach_rate.md) and
+[currency_selected.md](tables/currency_selected.md).
+
 ## D2 — Spec `application_id` won't join ⛔ CRITICAL
 
 | Source | Example | Length |
@@ -156,6 +172,7 @@ FROM clickathon.<new_table>
 | **02 — Group / Family** | `group_started`, `traveller_added`, `traveller_removed`, `group_submitted` | **0.0%** (all 4) | **STOP** — analyse standalone | 2026-08-02 |
 | **03 — Visa Status Sharing** | `share_clicked`, `channel_selected`, `link_generated` (3 of 5 — the other 2 carry no `application_id`) | **0.0%** (all 3) | **STOP** — analyse standalone | 2026-08-02 |
 | **04 — Abandoned Checkout Recovery** | `abandonment_detected`, `reminder_sent`, `reminder_opened`, `reminder_cta_clicked`, `resumed_at_step`, `reconverted` (all 6) | **0.0%** (all 6) | **STOP** — analyse standalone | 2026-08-02 |
+| **05 — Instant Forex Add-on** | `forex_offer_shown`, `currency_selected`, `amount_entered`, `forex_added_to_cart`, `forex_purchased` (all 5) | **0.0%** (all 5) | **STOP** — analyse standalone | 2026-08-02 |
 
 Source: `out/01_express_checkout/load_report.md`. The normalize step ran
 (dashes inserted, 32→36 chars) and the verify query ran against
@@ -265,6 +282,27 @@ second time — the platform-wide 2,503,863-row total in
 confirmed, not merely unverified-against-duplication. See
 [tables/abandonment_detected.md](tables/abandonment_detected.md) and its 5
 sibling pages.
+
+**2026-08-02 — spec 05 (Instant Forex Add-on) confirms the same pattern a
+sixth time, on all 5 of its tables.** Source:
+`out/05_instant_forex/load_report.md`. The normalize step ran on
+`forex_offer_shown`/`currency_selected`/`amount_entered`/
+`forex_added_to_cart`/`forex_purchased` — all 5 carry `application_id` on
+100% of rows — and the verify query ran against `application_started` —
+**none matched** (`overlap_pct = 0.0%` on all 5). Do not join any of this
+spec's tables to the main funnel via `application_id`. See
+[relationship.md](relationship.md) → "Forex Add-on" and
+[tables/forex_offer_shown.md](tables/forex_offer_shown.md) and its 4
+sibling pages.
+
+**2026-08-02 — independently re-confirmed by all 4 of the Analysis
+Agent's questions for spec 05** (`out/05_instant_forex/analysis/
+q01.md`–`q04.md`), each of which stayed within the forex flow's own 5
+tables (joined on `user_id` instead, safe per D6) rather than attempting
+the broken `application_id` join. No question found a working path back
+to `application_started` or the main funnel — every finding in q01–q04
+(attach rate, AOV, drop location, destination/currency/device/geo skew)
+is scoped to the forex flow standalone, as D2 requires.
 
 ## D3 — Capture-quality flag contradicts itself ⛔ CRITICAL
 

@@ -65,7 +65,7 @@ const ORCHESTRATOR = path.join(REPO_ROOT, "orchestrator.py");
 const OUT_ROOT = path.join(REPO_ROOT, "out", "webui_chats");
 const UPLOAD_ROOT = path.join(REPO_ROOT, "uploads");
 const CHAT_HISTORY_FILE = path.join(OUT_ROOT, "chat_history.json");
-const LAST_ONBOARD_FILE = path.join(OUT_ROOT, "last_onboard_run.json");
+const ONBOARD_HISTORY_FILE = path.join(OUT_ROOT, "onboard_history.json");
 
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const ORCHESTRATOR_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
@@ -206,25 +206,65 @@ app.put("/api/chats", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------
-// Last onboarding run: so a completed pipeline's outcome survives a page
-// refresh too, not just an in-flight one (see the "active" job endpoint
-// further down for the in-flight case).
+// Onboarding history: every run this server has ever started, kept on
+// disk — not just the currently in-flight one (see /api/onboard/active for
+// that). This is what lets a page refresh, or coming back days later, list
+// and re-open any past run's schema/results, exactly like chat history.
 // ---------------------------------------------------------------------
 
-app.get("/api/onboard/last-run", async (req, res) => {
-  res.json(await readJsonFile(LAST_ONBOARD_FILE, { specSlug: null }));
+async function readOnboardHistory() {
+  const parsed = await readJsonFile(ONBOARD_HISTORY_FILE, null);
+  if (parsed && typeof parsed.runs === "object" && Array.isArray(parsed.order)) {
+    return parsed;
+  }
+  return { runs: {}, order: [] };
+}
+
+/** Upsert one run's record and persist immediately. Called at every state
+ * transition (started, awaiting approval, approved/resumed, rejected,
+ * done, failed) so the history file is never more than one transition
+ * behind reality, and a server crash mid-run still leaves an accurate
+ * last-known status on disk rather than nothing. */
+async function recordOnboardRun(specSlug, patch) {
+  const history = await readOnboardHistory();
+  const existing = history.runs[specSlug] || { specSlug };
+  history.runs[specSlug] = { ...existing, ...patch };
+  if (!history.order.includes(specSlug)) history.order.push(specSlug);
+  await writeJsonFile(ONBOARD_HISTORY_FILE, history);
+}
+
+app.get("/api/onboard/history", async (req, res) => {
+  res.json(await readOnboardHistory());
 });
 
-app.delete("/api/onboard/last-run", async (req, res) => {
-  try {
-    await fsp.unlink(LAST_ONBOARD_FILE);
-  } catch (err) {
-    if (err.code !== "ENOENT") {
-      res.status(500).json({ error: err.message });
-      return;
-    }
+/** Full detail for one past run: its recorded status plus a fresh read of
+ * ddl.sql/justification.md/analysis output straight off disk — never
+ * stored duplicated in the history file itself, so this always reflects
+ * whatever is actually there now. */
+app.get("/api/onboard/run/:specSlug", async (req, res) => {
+  const specSlug = req.params.specSlug;
+  const history = await readOnboardHistory();
+  const record = history.runs[specSlug];
+  if (!record) {
+    res.status(404).json({ error: "no such onboarding run" });
+    return;
   }
-  res.json({ ok: true });
+
+  const outDir = path.join(REPO_ROOT, "out", specSlug);
+  const readIfExists = async (p) => {
+    try {
+      return await fsp.readFile(p, "utf8");
+    } catch (_err) {
+      return null;
+    }
+  };
+
+  res.json({
+    ...record,
+    ddl: await readIfExists(path.join(outDir, "ddl.sql")),
+    justification: await readIfExists(path.join(outDir, "justification.md")),
+    results: await readOnboardResultsBySlug(specSlug),
+  });
 });
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -279,17 +319,16 @@ function finishJob(jobId, job, code) {
   job.subscribers.clear();
   setTimeout(() => jobs.delete(jobId), JOB_TTL_MS);
 
-  // So a completed onboarding run's outcome survives a page refresh: jobs
-  // only live in memory (and only for JOB_TTL_MS), but a specSlug on disk
-  // is enough to re-read its ddl.sql/justification.md/analysis output any
-  // time after, independent of this job object still existing.
+  // So a completed onboarding run's outcome survives a page refresh (or the
+  // server restarting): jobs only live in memory, but the history record on
+  // disk plus its specSlug are enough to re-read ddl.sql/justification.md/
+  // analysis output any time after, independent of this job object.
   if (job.kind === "onboard") {
-    writeJsonFile(LAST_ONBOARD_FILE, {
-      specSlug: job.specSlug,
+    recordOnboardRun(job.specSlug, {
       status: job.status,
       code,
       finishedAt: new Date().toISOString(),
-    }).catch((err) => console.warn("Could not persist last_onboard_run.json:", err.message));
+    }).catch((err) => console.warn("Could not persist onboard_history.json:", err.message));
   }
 }
 
@@ -479,6 +518,7 @@ function runInstrumentationPhase(jobId, job) {
 
     job.status = "awaiting_approval";
     job.approvalPayload = { ddl, justification };
+    await recordOnboardRun(job.specSlug, { status: "awaiting_approval" });
     broadcastEvent(job, "awaiting-approval", job.approvalPayload);
     // Deliberately no finishJob() call here — the SSE connection stays open,
     // subscribers attached, until POST /approve or /reject decides what
@@ -519,11 +559,19 @@ app.post(
     await fsp.writeFile(path.join(specDir, "events.ndjson"), eventsFile.buffer);
 
     const outDir = path.join(REPO_ROOT, "out", path.basename(specDir));
+    const specSlug = path.basename(specDir);
     const { jobId, job } = createJob({
       kind: "onboard",
-      specSlug: path.basename(specDir),
+      specSlug,
       specDir: String(specDir),
       outDir,
+    });
+    await recordOnboardRun(specSlug, {
+      specSlug,
+      status: "running",
+      code: null,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
     });
     runInstrumentationPhase(jobId, job);
 
@@ -556,13 +604,14 @@ app.get("/api/onboard/active", (req, res) => {
   res.json({ jobId: null });
 });
 
-app.post("/api/onboard/approve/:jobId", (req, res) => {
+app.post("/api/onboard/approve/:jobId", async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== "awaiting_approval") {
     res.status(400).json({ error: "this job is not awaiting approval" });
     return;
   }
   job.status = "running";
+  await recordOnboardRun(job.specSlug, { status: "running" });
   res.json({ ok: true });
   runRestOfPipeline(req.params.jobId, job);
 });

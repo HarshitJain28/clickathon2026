@@ -3,20 +3,20 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for the 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread; out/04_abondon_checkout_recovery_2/load_report.md — rows loaded and D2 overlap_pct for the 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical row counts and D2 verdict on independent resubmission; out/04_checkout_recovery_3/analysis/q01.md–q04.md — resolves the duplicate-load question (no duplication), verified recovery rate by drop_step/channel/timing (K5 re-test), recovery-targeting mismatch finding; out/05_instant_forex/load_report.md — rows loaded and D2 overlap_pct for the 5 Instant Forex tables; out/05_instant_forex/analysis/q01.md–q04.md — verified full-funnel set-membership step-through, attach rate by destination/currency/device/geo, AOV
 last_verified: 2026-08-02
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
 # Tables
 
-Twenty-eight event tables in `clickathon`: 8 baseline tables + 5 from spec
+Thirty-three event tables in `clickathon`: 8 baseline tables + 5 from spec
 01 (Express Checkout) + 4 from spec 02 (Group / Family Applications) + 5
 from spec 03 (Visa Status Sharing) + 6 from spec 04 (Abandoned Checkout
-Recovery). **No views or materialized views exist.** The 8 baseline tables
-share the 30-column envelope defined below; the 20 spec tables each use a
-smaller subset of it (see each page). Every page covers only its own
-event-specific columns.
+Recovery) + 5 from spec 05 (Instant Forex Add-on). **No views or
+materialized views exist.** The 8 baseline tables share the 30-column
+envelope defined below; the 25 spec tables each use a smaller subset of it
+(see each page). Every page covers only its own event-specific columns.
 
 | Table | Role | Rows | Users | Step-through |
 |---|---|---:|---:|---:|
@@ -48,6 +48,41 @@ event-specific columns.
 | [reminder_cta_clicked](reminder_cta_clicked.md) | recovery flow (nudge) | 268 | 268 | 38.84%‖ |
 | [resumed_at_step](resumed_at_step.md) | recovery flow (return) | 268 | 268 | 100%‖ |
 | [reconverted](reconverted.md) | **recovery conversion** | 93 | 93 | 34.70%‖ (**4.04%** overall vs. `abandonment_detected`) |
+| [forex_offer_shown](forex_offer_shown.md) | forex flow (origin) | 2,900 | 2,900 | — |
+| [currency_selected](currency_selected.md) | forex flow | 1,033 | 1,033 | 35.62%¶ |
+| [amount_entered](amount_entered.md) | forex flow | 1,033 | 1,033 | 100%¶ |
+| [forex_added_to_cart](forex_added_to_cart.md) | forex flow | 725 | 725 | 70.18%¶ |
+| [forex_purchased](forex_purchased.md) | **forex conversion** | 546 | 546 | 75.31%¶ (**18.83%** overall vs. `forex_offer_shown`) |
+
+`¶` Spec 05 (Instant Forex Add-on) step-through figures were originally
+**unverified row-count ratios** from `profile.md`/`load_report.md`.
+**2026-08-02 update:** all of them are now **verified** exact
+set-membership joins on `user_id`, per the Analysis Agent's live queries
+(`analysis/q01.md`, `q03.md`, `q04.md`) — the full 5-stage chain is
+confirmed **perfectly nested** end-to-end and 100% timestamp-monotonic
+(unlike the main visa funnel, this one has no ordering trap). The
+overwhelming majority of the funnel's loss (64.38%, 1,867 users)
+concentrates at the very first step, `forex_offer_shown →
+currency_selected`. `currency_selected` and `amount_entered` share an
+identical row count (1,033) and identical per-field breakdowns in
+`profile.md`; this is now **confirmed** a true 1:1 pairing (100%
+step-through, direct set-membership join), the same pattern spec 03's
+`channel_selected`/`link_generated` turned out to have — see
+[currency_selected.md](currency_selected.md). The PM's headline attach-rate
+metric (`forex_purchased` ÷ `forex_offer_shown` = **18.83%**) is also
+verified, with a real ~11pp spread by `destination` (best US 24.58%,
+worst AU 13.78%) — see
+[metrics/forex_attach_rate.md](../metrics/forex_attach_rate.md). AOV
+among the 546 attachers is right-skewed (median ₹31,685, mean
+₹40,587.77, INR only) — see
+[metrics/forex_addon_aov.md](../metrics/forex_addon_aov.md). ⚠ All 5
+Instant Forex tables' `application_id` returned **0% overlap** against
+`application_started` (D2 verify, `load_report.md`, 2026-08-02,
+independently re-confirmed by all 4 of `analysis/q01.md`–`q04.md`, none
+of which found a working `application_id` path) — same STOP verdict as
+specs 01–04; treat as a standalone flow, not joinable to the main funnel.
+See [forex_offer_shown.md](forex_offer_shown.md) and its 4 sibling
+pages.
 
 `††` `link_opened`/`recipient_cta_clicked` carry **no `user_id` column at
 all** (recipient-side, per D6 — the constraint doesn't apply since there's
@@ -170,15 +205,19 @@ figures matching the documented row counts exactly (2,300/2,300/690/268/
 reasoning. The row counts in the table above and the totals below are now
 **confirmed**, not merely unverified-against-duplication.
 
-**Total: 2,503,863 rows** (2,480,481 baseline + 5,507 Express Checkout +
+**Total: 2,510,100 rows** (2,480,481 baseline + 5,507 Express Checkout +
 5,453 Group/Family + 6,503 Status Sharing + 5,919 Abandoned Checkout
-Recovery, per `out/04_abondon_checkout_recovery_2/load_report.md`,
-confirmed non-duplicated by `out/04_checkout_recovery_3/analysis/q01.md`–
-`q04.md`, 2026-08-02). Data window: 2025-12-31 23:41 → 2026-07-01 03:01
-(baseline); Express Checkout sample: 2026-06-08 → 2026-06-28; Group/Family
-sample: 2026-06-08 → 2026-06-28; Status Sharing sample: 2026-06-08 06:00 →
-2026-07-01 09:21; Abandoned Checkout Recovery sample: 2026-06-08 06:01 →
-2026-07-01 00:00 (per profile.md).
+Recovery + 6,237 Instant Forex, per
+`out/04_abondon_checkout_recovery_2/load_report.md` and
+`out/05_instant_forex/load_report.md`, the Abandoned Checkout Recovery
+figure confirmed non-duplicated by
+`out/04_checkout_recovery_3/analysis/q01.md`–`q04.md`, 2026-08-02). Data
+window: 2025-12-31 23:41 → 2026-07-01 03:01 (baseline); Express Checkout
+sample: 2026-06-08 → 2026-06-28; Group/Family sample: 2026-06-08 →
+2026-06-28; Status Sharing sample: 2026-06-08 06:00 → 2026-07-01 09:21;
+Abandoned Checkout Recovery sample: 2026-06-08 06:01 → 2026-07-01 00:00;
+Instant Forex sample: 2026-06-08 06:00 → 2026-06-28 23:12 (per
+profile.md).
 
 ---
 
@@ -260,6 +299,15 @@ numerator/denominator pair); `reminder_sent`/`reminder_opened`/
 (keyed by nudge channel — the PM's "which channel recovers best"
 question). See [abandonment_detected](abandonment_detected.md) and its 5
 sibling pages.
+
+**The 5 Instant Forex tables (spec 05) also follow D8, all substituting
+`destination`.** `ENGINE = MergeTree` throughout; `ORDER BY
+(toDate(timestamp), destination, user_id, id)` on all 5 — the PM's own
+questions name `destination` explicitly ("attach rate … by `destination`",
+"which destinations attach best"). This spec also deliberately upgrades
+`destination` from `LowCardinality(String)` (specs 01–04's pattern) to
+`FixedString(2)` — a checked, justified exception, not a reflexive
+default; see [forex_offer_shown](forex_offer_shown.md) for the reasoning.
 
 ## Two corrections to base_context's table model
 

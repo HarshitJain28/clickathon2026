@@ -13,6 +13,92 @@ links: [doc.index, doc.known_issues]
 Append-only, newest first. Every entry names the evidence behind the change.
 Git history is the authoritative diff; this is the readable summary.
 
+## 2026-08-02 — Spec `05_instant_forex`: 4 analysis questions consolidated
+
+`out/05_instant_forex/analysis/q01.md`–`q04.md` (all 4 present) answer the
+PM's headline questions for the Instant Forex Add-on: **q01** — overall
+attach rate `forex_purchased` ÷ `forex_offer_shown` = 546/2,900 =
+**18.83%**, verified by exact `uniqExact(user_id)` set-membership join, no
+fan-out, plus by-`destination` breakdown (best US 24.58%, worst AU
+13.78%, ~11pp spread). **q02** — AOV distribution among the 546 attachers:
+right-skewed, median ₹31,685, mean ₹40,587.77 (100% INR), nearly identical
+to `forex_added_to_cart`'s pre-payment shape (median ₹31,911) — mean
+overstates the typical uplift, use median. **q03** — full 5-stage funnel
+(`forex_offer_shown → currency_selected → amount_entered →
+forex_added_to_cart → forex_purchased`) confirmed **perfectly nested** by
+live joins; the funnel's loss is overwhelmingly concentrated at the very
+first step (`forex_offer_shown → currency_selected`, 64.38%/1,867 users
+lost) vs. only 24.69%/179 lost at `forex_added_to_cart → forex_purchased`;
+`currency_selected`/`amount_entered`'s identical row count is confirmed a
+true 1:1 pairing (100% step-through), not a coincidence. **q04** —
+confirms 100% timestamp monotonicity (no ordering trap in this funnel,
+unlike the main visa funnel); adds `to_currency` skew (EUR blends FR+GR,
+a 3pp gap masked), mild device skew (ios best 19.77%), and mild-moderate
+geo skew (AE best 21.51%, India = 61.7% of volume).
+
+This upgrades all 5 table pages' step-through figures from "unverified
+row-count ratio" to **verified** (per D1's set-membership fix), resolves
+`currency_selected.md`'s "unconfirmed pairing" note to confirmed, and adds
+two new metric pages: [metrics/forex_attach_rate.md](metrics/forex_attach_rate.md)
+and [metrics/forex_addon_aov.md](metrics/forex_addon_aov.md). Updated
+`known_issues.md` → D1 (funnel verified, perfectly nested + monotonic)
+and → D2 (independently re-confirmed by all 4 questions, no working
+`application_id` path found — same STOP verdict stands). Updated
+`relationship.md` → "Forex Add-on" section and `tables/index.md`'s ¶
+footnote to match. Evidence:
+`out/05_instant_forex/analysis/q01.md`–`q04.md`.
+
+**Caveat carried forward, not resolvable by this agent:** none of the 4
+questions checked whether this spec's `user_id` overlaps
+`application_started`/`destination_card_clicked` via `user_id` rather than
+the broken `application_id` — an open question this wiki cannot run
+itself (no live DB access), echoing the same still-unrun check noted for
+spec 04's Recovery flow.
+
+## 2026-08-02 — Spec `05_instant_forex` instrumented — 5 new tables, no analysis yet
+
+`out/05_instant_forex`'s `ddl.sql`/`justification.md`/`profile.md`/
+`load_report.md` introduce 5 new `CREATE TABLE` statements (no `ALTER`s, no
+materialized views): `forex_offer_shown` (2,900 rows, origin, only table
+carrying `fx_rate`), `currency_selected` (1,033), `amount_entered` (1,033,
+adds `amount`), `forex_added_to_cart` (725, adds `addon_value_inr`), and
+`forex_purchased` (546, **conversion event** for this add-on). Mints no
+new entity/key — joins on the existing `user_id`/`application_id` envelope
+columns plus `destination`/`from_currency`/`to_currency`, the same
+topology as spec 04 (Recovery). All 5 tables follow D8's sort-key fix
+(`ORDER BY (toDate(timestamp), destination, user_id, id)`, `MergeTree`)
+and deliberately upgrade `destination` to `FixedString(2)` rather than
+`LowCardinality(String)` — a checked exception to specs 01–04's pattern,
+justified in `justification.md`'s "Column choices". Created 5 new table
+pages (`forex_offer_shown.md`, `currency_selected.md`, `amount_entered.md`,
+`forex_added_to_cart.md`, `forex_purchased.md`), added a "Forex Add-on"
+entity section to `relationship.md`, and added a row + narrative paragraph
+to `known_issues.md` → D2.
+
+**Key risks carried forward** (per `justification.md`'s citations —
+D2/D6/D8/D9/D1/D7): **D2 — `application_id` 0% overlap on all 5 tables**
+(`load_report.md`, verified) — same STOP verdict as specs 01–04; analyse
+standalone. **D6** — no repeat users (`distinct(user_id) == row count` on
+all 5). **D8** — sort key correctly avoids the baseline anti-pattern.
+**D9** — `device_type` reproduces the `Desktop`/`ios` casing collision.
+**D7** — `addon_value_inr` is revenue-shaped; report with `from_currency`
+scope named (INR-only in this sample). **D1** — the PM's headline
+attach-rate question (`forex_offer_shown` → `forex_purchased`, currently
+an unverified row-count ratio at 18.83%) must be computed by set
+membership, not `windowFunnel`, once an analysis question runs.
+
+**No PM questions answered this pass** — `out/05_instant_forex/analysis/`
+does not exist yet (question_extractor.py / the Analysis Agent has not run
+for this spec). Noted as an open item: the attach-rate metric, the
+`currency_selected`/`amount_entered` row-count coincidence (1,033 each,
+unconfirmed as a true 1:1 pairing), and the `user_id` overlap check
+against the main funnel (not yet run, same open item spec 04 still
+carries) are all still unverified.
+
+Evidence: `out/05_instant_forex/ddl.sql`, `justification.md`, `profile.md`,
+`load_report.md`. Regenerated `tables/index.md` (33 tables total, 2,510,100
+rows), `index.md`, and `relationship.md`'s entity/join-map sections.
+
 ## 2026-08-02 — Spec `04_checkout_recovery_3` analysis consolidated — duplicate-load question resolved, K5 re-tested, recovery rate verified
 
 `out/04_checkout_recovery_3`'s `ddl.sql`/`justification.md`/`profile.md`/

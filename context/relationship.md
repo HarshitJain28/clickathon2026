@@ -3,7 +3,7 @@ id: doc.relationship
 kind: relationship
 status: verified
 confidence: high
-source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation; out/02_group_family/load_report.md — D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — independent re-confirmation, group completion-rate and churn analysis; out/03_status_sharing/load_report.md — D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — independent re-confirmation, share-flow completion rate, K-factor; out/04_abondon_checkout_recovery_2/load_report.md — D2 overlap_pct for all 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical D2 overlap_pct on independent resubmission, raises open duplicate-load question
+source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation; out/02_group_family/load_report.md — D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — independent re-confirmation, group completion-rate and churn analysis; out/03_status_sharing/load_report.md — D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — independent re-confirmation, share-flow completion rate, K-factor; out/04_abondon_checkout_recovery_2/load_report.md — D2 overlap_pct for all 6 Abandoned Checkout Recovery tables; out/04_checkout_recovery_3/load_report.md — identical D2 overlap_pct on independent resubmission, raises open duplicate-load question; out/05_instant_forex/load_report.md — D2 overlap_pct for all 5 Instant Forex tables; out/05_instant_forex/analysis/q01.md–q04.md — independent re-confirmation, verified full-funnel step-through, attach rate by destination/currency/device/geo, AOV
 last_verified: 2026-08-02
 links: [doc.business, doc.known_issues, tables.index]
 ---
@@ -304,6 +304,68 @@ tables the user last touched before dropping), `channel`
 [tables/abandonment_detected.md](tables/abandonment_detected.md) and its
 5 sibling pages.
 
+### Forex Add-on
+
+An instant-forex add-on purchase, originating at `forex_offer_shown` (spec
+05). **2,900 offers shown** in the profiled sample (2026-06-08 06:00 →
+2026-06-28 23:12), one per offered user. No new key/entity id is minted
+here — like Recovery (spec 04), the 5 tables join each other on the
+existing `user_id`/`application_id` envelope columns plus the shared
+context columns `destination`/`from_currency`/`to_currency`, rather than a
+spec-local key like `group_id`/`share_id`.
+
+Row counts (spec 05 sample):
+
+| Table | Rows | Distinct `user_id` |
+|---|---:|---:|
+| `forex_offer_shown` (origin) | 2,900 | 2,900 |
+| `currency_selected` | 1,033 | 1,033 |
+| `amount_entered` | 1,033 | 1,033 |
+| `forex_added_to_cart` | 725 | 725 |
+| `forex_purchased` (**conversion**) | 546 | 546 |
+
+**⚠ `application_id` does not join `application_started` — 0% overlap on
+all 5 tables.** `application_id` is present on 100% of rows across every
+one of the 5 tables. The mandatory D2 overlap-check ran against
+`application_started` and returned **`overlap_pct = 0.0%`** on all 5
+(`out/05_instant_forex/load_report.md`, 2026-08-02) — the same STOP
+verdict specs 01–04 got. Analyse the forex flow standalone. **2026-08-02:**
+independently re-confirmed by all 4 of the Analysis Agent's questions for
+this spec (`out/05_instant_forex/analysis/q01.md`–`q04.md`), each of which
+stayed within the forex flow's own 5 tables (joined on `user_id` instead,
+safe per D6) — no question found a working path back to
+`application_started` or the main funnel. See
+[known_issues.md](known_issues.md) → D2.
+
+**The 5-table step-through chain (forex funnel) is now verified by set
+membership, not row-count ratios** (source: `out/05_instant_forex/
+analysis/q01.md`, `q03.md`, `q04.md`, 2026-08-02) — confirmed **perfectly
+nested** end-to-end and 100% timestamp-monotonic. Overall attach rate:
+`forex_purchased` ÷ `forex_offer_shown` = 546/2,900 = **18.83%**, the PM's
+headline attach-rate metric, verified by exact `uniqExact(user_id)` join.
+By `destination`: best US 24.58%, worst AU 13.78% (~11pp spread, 14 of 27
+destinations observed). `currency_selected` and `amount_entered` share an
+identical row count (1,033) and are now **confirmed** a true 1:1 pairing
+(100% step-through, direct set-membership join) — the same pattern spec
+03's `channel_selected`/`link_generated` turned out to have. The funnel's
+big leak (64.38%, 1,867 users) is concentrated entirely at
+`forex_offer_shown → currency_selected` — the added-to-cart→purchased
+step loses only 24.69%. AOV among the 546 attachers is right-skewed
+(median ₹31,685, mean ₹40,587.77, INR only, per D7). See
+[forex_offer_shown.md](tables/forex_offer_shown.md) and its 4 sibling
+pages, [metrics/forex_attach_rate.md](metrics/forex_attach_rate.md), and
+[metrics/forex_addon_aov.md](metrics/forex_addon_aov.md).
+
+Attributes: `destination` (`FixedString(2)`, this spec's leading sort-key
+discriminator — a deliberate upgrade from `LowCardinality(String)`),
+`from_currency` (`FixedString(3)`, single-valued `INR` in this sample),
+`to_currency` (`FixedString(3)`, 13 values), `fx_rate` (`Float64`,
+`forex_offer_shown` only), `amount` (`UInt16`, on 3 of the 5 tables),
+`addon_value_inr` (`Float64`, revenue-shaped, on 2 of the 5 tables — see
+[known_issues.md](known_issues.md) → D7). See
+[tables/forex_offer_shown.md](tables/forex_offer_shown.md) and its 4
+sibling pages.
+
 ### Entities the incoming specs will add
 
 - **Group** (spec 02) — **instrumented 2026-08-02, see "Group" above.** The
@@ -338,6 +400,21 @@ spec, so (unlike specs 01–03) none of its step-through figures are
 verified set-membership joins yet — see "Recovery" above for the
 row-count-ratio figures available today and the still-open `user_id`
 overlap check.
+
+**Forex Add-on (spec 05) — instrumented 2026-08-02, see "Forex Add-on"
+above.** Like Recovery, this spec mints no new spec-local key — its 5
+tables join on the existing `user_id`/`application_id` envelope columns
+plus `destination`/`from_currency`/`to_currency`. **2026-08-02:** all 4 of
+the Analysis Agent's PM-question answers for this spec independently
+worked around the broken `application_id` join by joining on `user_id`
+instead (safe per D6) — none found a usable path back to `Application`.
+The full funnel (including the PM's headline attach-rate metric) is now
+verified by set membership: 18.83% overall attach rate, best destination
+US (24.58%), worst AU (13.78%); the `currency_selected`/`amount_entered`
+row-count coincidence is confirmed a true 1:1 pairing; AOV among
+attachers is right-skewed (median ₹31,685). See
+`out/05_instant_forex/analysis/q01.md`–`q04.md` and the findings added
+above.
 
 **Spec 01 (Express Checkout) — instrumented, 2026-08-01, no new entity.**
 Checked against this list per `out/01_express_checkout/justification.md`:
@@ -386,8 +463,9 @@ applied — a real, undocumented top-of-funnel cohort.
   overlap-checked against the main funnel — see "Recovery" above.
 - **`application_id`** — joins `application_started` → `document_uploaded`,
   `pay_now_clicked`, `purchase_completed`. **Not** usable as a join key for
-  spec 01's 5 tables, spec 02's 4 tables, spec 03's 3 sharer-side tables, or
-  spec 04's 6 tables — all independently verified 0% overlap (D2).
+  spec 01's 5 tables, spec 02's 4 tables, spec 03's 3 sharer-side tables,
+  spec 04's 6 tables, or spec 05's 5 tables — all independently verified 0%
+  overlap (D2).
 - **`group_id`** — spec-local (spec 02 only). Joins `group_started` →
   `traveller_added`/`traveller_removed`/`group_submitted`. Does not join
   `application_id` or `user_id`.

@@ -3,7 +3,7 @@ id: metrics.index
 kind: index
 status: verified
 confidence: high
-source: derived from frontmatter of metrics/*.md; out/04_checkout_recovery_3/analysis/q01.md–q03.md — recovery_rate
+source: derived from frontmatter of metrics/*.md; out/04_checkout_recovery_3/analysis/q01.md–q03.md — recovery_rate; out/05_instant_forex/analysis/q01.md, q03.md, q04.md — forex_attach_rate; out/05_instant_forex/analysis/q02.md — forex_addon_aov
 last_verified: 2026-08-02
 links: [doc.index, pattern.funnel_computation]
 ---
@@ -27,6 +27,8 @@ H1 2026 (2026-01-01 → 2026-07-01).
 | [share_completion_rate](share_completion_rate.md) | 71.5% overall, flat 70.1%–73.3% by status | verified | high |
 | [recipient_conversion_k_factor](recipient_conversion_k_factor.md) | ~38% pure-new-user, 0% pure-existing-user | verified | medium |
 | [recovery_rate](recovery_rate.md) | 4.04% overall, 2.62%–4.80% by drop_step, push best by channel (4.66%) | verified | high |
+| [forex_attach_rate](forex_attach_rate.md) | 18.83% overall, 13.78%–24.58% by destination | verified | high |
+| [forex_addon_aov](forex_addon_aov.md) | median ₹31,685 / mean ₹40,587.77 (INR only) | verified | medium |
 
 ## Three rules for reporting any of these
 

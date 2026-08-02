@@ -474,8 +474,7 @@ async function resumePendingJob(chat) {
 // Onboard spec
 // ----------------------------------------------------------------------
 
-function renderOnboardResults(results) {
-  const resultsEl = document.getElementById("onboardResults");
+function renderOnboardResults(results, resultsEl = document.getElementById("onboardResults")) {
   resultsEl.innerHTML = "";
 
   if (!results.length) {
@@ -559,6 +558,117 @@ function initDropzone(dropzoneId, onChange) {
     }
   });
 }
+
+const ONBOARD_STATUS_LABELS = {
+  running: "Running",
+  awaiting_approval: "Awaiting approval",
+  done: "Done",
+  failed: "Failed",
+  rejected: "Rejected",
+};
+
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch (_err) {
+    return iso;
+  }
+}
+
+/** Every onboarding run this server has ever started, read straight from
+ * disk — independent of whether anything is currently in flight. This is
+ * what lets a finished run (or one from days ago, or before a server
+ * restart) still be opened and reviewed. */
+async function renderOnboardHistory() {
+  // Whenever the history is (re)rendered, it should actually be visible —
+  // the one place that hides it is watchOnboardJob, while a run is active.
+  document.getElementById("onboardHistorySection").style.display = "";
+
+  const listEl = document.getElementById("onboardHistoryList");
+  let data;
+  try {
+    const res = await fetch("/api/onboard/history");
+    data = await res.json();
+  } catch (err) {
+    listEl.innerHTML = "";
+    listEl.textContent = "Could not load onboarding history: " + err.message;
+    return;
+  }
+
+  listEl.innerHTML = "";
+  const order = data.order || [];
+  if (!order.length) {
+    const empty = document.createElement("div");
+    empty.className = "onboard-history-empty";
+    empty.textContent = "No specs onboarded yet.";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  for (let i = order.length - 1; i >= 0; i -= 1) {
+    const run = data.runs[order[i]];
+    if (!run) continue;
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "onboard-history-item";
+
+    const name = document.createElement("span");
+    name.className = "onboard-history-item-name";
+    const when = formatTimestamp(run.finishedAt || run.startedAt);
+    name.textContent = run.specSlug + (when ? " — " + when : "");
+
+    const status = document.createElement("span");
+    status.className = "onboard-history-status status-" + run.status;
+    status.textContent = ONBOARD_STATUS_LABELS[run.status] || run.status;
+
+    item.appendChild(name);
+    item.appendChild(status);
+    item.addEventListener("click", () => openOnboardHistoryDetail(run.specSlug));
+    listEl.appendChild(item);
+  }
+}
+
+async function openOnboardHistoryDetail(specSlug) {
+  const detail = document.getElementById("onboardHistoryDetail");
+  const titleEl = document.getElementById("onboardHistoryDetailTitle");
+  const statusEl = document.getElementById("onboardHistoryDetailStatus");
+  const ddlEl = document.getElementById("onboardHistoryDdl");
+  const justificationEl = document.getElementById("onboardHistoryJustification");
+  const resultsEl = document.getElementById("onboardHistoryResults");
+
+  titleEl.textContent = "📤 " + specSlug;
+  statusEl.textContent = "Loading…";
+  ddlEl.textContent = "";
+  justificationEl.innerHTML = "";
+  resultsEl.innerHTML = "";
+  detail.style.display = "";
+  detail.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  try {
+    const res = await fetch(`/api/onboard/run/${specSlug}`);
+    const run = await res.json();
+    if (run.error) {
+      statusEl.textContent = "⚠️ " + run.error;
+      return;
+    }
+
+    const statusLabel = ONBOARD_STATUS_LABELS[run.status] || run.status;
+    const when = formatTimestamp(run.finishedAt || run.startedAt);
+    statusEl.textContent = `${statusLabel}${when ? " — " + when : ""}`;
+
+    ddlEl.textContent = run.ddl || "(no ddl.sql on disk)";
+    justificationEl.innerHTML = renderMarkdown(run.justification || "_No justification.md on disk._");
+    renderOnboardResults(run.results || [], resultsEl);
+  } catch (err) {
+    statusEl.textContent = "⚠️ Request failed: " + err.message;
+  }
+}
+
+document.getElementById("closeHistoryDetailBtn").addEventListener("click", () => {
+  document.getElementById("onboardHistoryDetail").style.display = "none";
+});
 
 function initOnboardForm() {
   const formSection = document.getElementById("onboardFormSection");
@@ -678,6 +788,12 @@ function initOnboardForm() {
     stepListEl.style.display = "";
     rawDetailsEl.style.display = "";
 
+    // Old runs are just clutter under an active one — tuck them away while
+    // this run is in flight; they come back once it settles (see the
+    // "done" handler's renderOnboardHistory() call, which re-shows them).
+    document.getElementById("onboardHistorySection").style.display = "none";
+    document.getElementById("onboardHistoryDetail").style.display = "none";
+
     statusEl.textContent = `Onboarding ${specSlug} — this can take several minutes.`;
     const pipeline = new PipelineTracker(pipelineEl);
     const feed = new StepFeed({ listEl: stepListEl, rawEl: rawLogEl });
@@ -714,6 +830,10 @@ function initOnboardForm() {
       approvalPanel.style.display = "";
       statusEl.textContent = "Schema designed — review it below before continuing.";
       window.scrollTo(0, document.body.scrollHeight);
+      // History stays hidden through the approval pause too — it's still
+      // "a run in flight" needing the user's attention, same as while it's
+      // actively streaming. It reappears once the run truly settles (see
+      // the "done" handler).
     });
 
     es.addEventListener("done", async (e) => {
@@ -743,6 +863,7 @@ function initOnboardForm() {
       }
       onboardAnotherBtn.style.display = "";
       updateRunButtonState();
+      renderOnboardHistory();
     });
 
     es.onerror = () => {
@@ -861,6 +982,7 @@ document.getElementById("newChatBtn").addEventListener("click", () => {
 document.getElementById("onboardBtn").addEventListener("click", () => {
   state.view = "onboard";
   renderAll();
+  renderOnboardHistory();
 });
 document.getElementById("backToChatBtn").addEventListener("click", () => {
   state.view = "chat";
@@ -884,4 +1006,5 @@ const onboardApi = initOnboardForm();
     renderAll();
   }
   await resumePendingJob(activeChat());
+  renderOnboardHistory();
 })();
