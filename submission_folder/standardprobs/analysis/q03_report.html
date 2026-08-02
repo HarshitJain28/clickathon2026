@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Q2 2026 (Last Quarter) — Trends &amp; Regressions Report</title>
+<style>
+  :root{
+    --bg: #0f1520;
+    --panel: #161f2e;
+    --panel-border: #2a374a;
+    --text: #e7edf5;
+    --muted: #9db0c6;
+    --grid: #2c3a4e;
+    --accent1: #4fb0ff; /* conversion line */
+    --accent2: #ff6b6b; /* android */
+    --accent3: #57d19c; /* ios */
+    --accent4: #ffb454; /* card clicked */
+    --accent5: #c792ea; /* applications */
+    --accent6: #7ee6d0; /* documents */
+    --accent7: #ff9e80; /* pay clicks */
+    --accent8: #6ea8fe; /* purchases */
+    --warn-bg: #3a2323;
+    --warn-border: #7a3a3a;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --panel-border: #d8dee8;
+      --text: #1b2431;
+      --muted: #52607a;
+      --grid: #e2e7ef;
+      --warn-bg: #fdecea;
+      --warn-border: #f1b8b0;
+    }
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap{ max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
+  h1{ font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle{ color: var(--muted); font-size: 0.95rem; margin-bottom: 28px; }
+  h2{ font-size: 1.15rem; margin: 0 0 6px; }
+  .card{
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin-bottom: 22px;
+  }
+  .finding{
+    font-size: 0.92rem;
+    color: var(--muted);
+    margin: 6px 0 16px;
+  }
+  .headline{
+    display:inline-block;
+    font-weight:600;
+    color: var(--text);
+    background: rgba(255,107,107,0.12);
+    border: 1px solid var(--accent2);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+  }
+  svg{ width: 100%; height: auto; display:block; }
+  .axis-label{ fill: var(--muted); font-size: 11px; }
+  .grid-line{ stroke: var(--grid); stroke-width: 1; }
+  .legend{ display:flex; flex-wrap:wrap; gap: 14px; margin-top: 10px; font-size: 0.82rem; color: var(--muted); }
+  .legend-item{ display:flex; align-items:center; gap:6px; }
+  .swatch{ width:12px; height:3px; border-radius: 2px; display:inline-block; }
+  .scope{ font-size: 0.78rem; color: var(--muted); margin-top: 10px; }
+  .note{
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.88rem;
+    margin-top: 8px;
+  }
+  table{ border-collapse: collapse; width:100%; font-size: 0.85rem; margin-top: 10px; }
+  th, td{ text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--panel-border); }
+  th:first-child, td:first-child{ text-align:left; }
+  footer{ color: var(--muted); font-size: 0.78rem; margin-top: 30px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Trends &amp; Regressions — Last Quarter (Q2 2026)</h1>
+  <div class="subtitle">Live query against ClickHouse Cloud (<code>clickathon</code>), run 2026-08-02. Scope: Q2 2026 = 2026-04-01 → 2026-06-30. Charts use the 12 full ISO weeks inside that window (Apr 5 – Jun 27); the partial first/last calendar weeks (3–4 days each) are excluded to avoid distorting the trend lines.</div>
+
+  <div class="card">
+    <span class="headline">Headline regression</span>
+    <h2>Android document-capture failures — up ~5x across the quarter (K2)</h2>
+    <div class="finding">
+      Weekly <code>is_crossed_failed_attempt_threshold</code> rate on <code>document_uploaded</code>, Android vs iOS.
+      Android rises almost every single week, from 7.4% (Apr 5) to 34.3% (Jun 21) — iOS stays flat between 7.5% and 10.8% the entire quarter.
+      This reproduces known_issues.md → K2 exactly on this quarter's live data, and it's still accelerating in the most recent week measured.
+    </div>
+    <svg id="chartAndroid" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:var(--accent2)"></span> Android fail rate</div>
+      <div class="legend-item"><span class="swatch" style="background:var(--accent3)"></span> iOS fail rate</div>
+    </div>
+    <div class="note">
+      Caveat (known_issues.md D3): this flag does not reliably track true capture quality elsewhere in the data (71.4% of flagged events carry zero retries) — so the <strong>trend</strong> (monotonic, Android-only, correctly timed) is robust, but the <strong>absolute level</strong> should be read with some doubt.
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="headline">Trend</span>
+    <h2>Funnel conversion keeps sliding — 4.9% → 3.7–4.0% across the quarter</h2>
+    <div class="finding">
+      Weekly application→purchase conversion (<code>purchase_completed</code> ÷ <code>application_started</code>, by user_id set membership, bucketed on application week — per known_issues.md D1, not <code>windowFunnel</code>).
+      Monthly: 4.92% (Apr) → 4.49% (May) → 3.96% (Jun). This continues the broad H1 2026 decline already documented (4.91%→3.93%, Jan→Jun) — it is not a one-month blip, it is present in essentially every week of Q2.
+    </div>
+    <svg id="chartConv" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:var(--accent1)"></span> Weekly conversion rate (%)</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="headline">Not a regression</span>
+    <h2>Funnel volume — healthy top-of-funnel growth, flat mid/bottom funnel</h2>
+    <div class="finding">
+      Each stage indexed to its Apr-5 week = 100, so growth is comparable across wildly different scales (card clicks ~39K/week vs. purchases ~300/week).
+      Top-of-funnel traffic (card clicks, applications) grew a steady ~18–20% across the quarter — organic growth, no regression there.
+      But <code>pay_now_clicked</code> and <code>purchase_completed</code> volumes stayed roughly flat (some weeks even dipped below their April baseline) despite more people entering upstream — the flip side of the declining conversion rate above: more people in, a shrinking share coming out the other end.
+    </div>
+    <svg id="chartVol" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend" id="legendVol"></div>
+    <div class="scope">Sample: 12 full ISO weeks (Apr 5 – Jun 27 2026), ~85,000 applications and ~3,500 purchases across the quarter. Source tables: destination_card_clicked, application_started, document_uploaded, pay_now_clicked, purchase_completed.</div>
+  </div>
+
+  <footer>
+    Generated by the Analytics Agent · clickathon @ 78f5870d-894f-4405-bf4f-542014537dcb · database: clickathon · query date 2026-08-02
+  </footer>
+</div>
+
+<script>
+const weeks = ["Apr 05","Apr 12","Apr 19","Apr 26","May 03","May 10","May 17","May 24","May 31","Jun 07","Jun 14","Jun 21"];
+
+const conv = [4.908,5.091,4.669,4.988,4.119,4.912,4.461,4.409,3.734,4.161,3.834,3.977];
+const android = [7.35,10.62,9.13,19.57,21.52,23.81,22.84,27.38,30.88,32.43,30.04,34.33];
+const ios = [9.19,10.06,7.63,8.29,8.62,7.54,7.87,7.73,10.81,10.25,10.03,8.53];
+
+const volIdx = {
+  "Card clicks": {color:"var(--accent4)", data:[100.0,102.0,103.7,105.4,108.1,109.9,110.5,112.9,114.6,116.3,119.0,120.1]},
+  "Applications": {color:"var(--accent5)", data:[100.0,102.0,103.7,107.4,108.6,109.1,110.7,114.3,115.0,117.5,120.6,118.0]},
+  "Documents uploaded": {color:"var(--accent6)", data:[100.0,102.0,105.8,107.1,109.9,117.5,111.2,114.4,98.5,109.7,112.8,111.2]},
+  "Pay-now clicks": {color:"var(--accent7)", data:[100.0,100.0,102.8,106.3,98.0,113.6,105.5,103.2,89.4,98.8,99.3,99.8]},
+  "Purchases": {color:"var(--accent8)", data:[100.0,107.2,99.0,108.9,91.8,109.9,100.3,101.4,89.1,101.4,92.8,96.6]}
+};
+
+function resolveColor(v){
+  if(v.startsWith('var(')){
+    const name = v.slice(4,-1).trim();
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  return v;
+}
+
+function buildLineChart(svgId, series, opts){
+  const svg = document.getElementById(svgId);
+  const W = 900, H = opts.height || 320;
+  const padL = 46, padR = 16, padT = 18, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = weeks.length;
+
+  let allVals = [];
+  series.forEach(s => allVals = allVals.concat(s.data));
+  let yMin = opts.yMin !== undefined ? opts.yMin : Math.min(...allVals);
+  let yMax = opts.yMax !== undefined ? opts.yMax : Math.max(...allVals);
+  const pad = (yMax - yMin) * 0.12 || 1;
+  yMin = Math.max(opts.yFloor !== undefined ? opts.yFloor : -Infinity, yMin - pad);
+  yMax = yMax + pad;
+
+  const x = i => padL + (i/(n-1)) * plotW;
+  const y = v => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  let svgns = "http://www.w3.org/2000/svg";
+  function el(tag, attrs){
+    const e = document.createElementNS(svgns, tag);
+    for(const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // gridlines + y labels
+  const gridCount = 5;
+  for(let g=0; g<=gridCount; g++){
+    const val = yMin + (yMax-yMin)*g/gridCount;
+    const yy = y(val);
+    svg.appendChild(el('line', {x1:padL, x2:W-padR, y1:yy, y2:yy, class:'grid-line'}));
+    const t = el('text', {x: padL-8, y: yy+4, class:'axis-label', 'text-anchor':'end'});
+    t.textContent = (opts.yFmt ? opts.yFmt(val) : val.toFixed(1));
+    svg.appendChild(t);
+  }
+
+  // x labels (every other week to avoid crowding)
+  weeks.forEach((w,i)=>{
+    if(i % 2 === 0 || i === n-1){
+      const t = el('text', {x: x(i), y: H-12, class:'axis-label', 'text-anchor':'middle'});
+      t.textContent = w;
+      svg.appendChild(t);
+    }
+  });
+  const yAxisTitle = el('text', {x: 10, y: 12, class:'axis-label'});
+  yAxisTitle.textContent = opts.yTitle || '';
+  svg.appendChild(yAxisTitle);
+
+  series.forEach(s => {
+    const color = resolveColor(s.color);
+    let d = '';
+    s.data.forEach((v,i) => { d += (i===0?'M':'L') + x(i).toFixed(1) + ',' + y(v).toFixed(1) + ' '; });
+    svg.appendChild(el('path', {d, fill:'none', stroke: color, 'stroke-width':2.5, 'stroke-linejoin':'round', 'stroke-linecap':'round'}));
+    s.data.forEach((v,i) => {
+      svg.appendChild(el('circle', {cx:x(i), cy:y(v), r:3, fill: color}));
+    });
+  });
+}
+
+buildLineChart('chartConv', [
+  {color:'var(--accent1)', data: conv}
+], {yTitle:'Conversion rate (%)', yFmt:v=>v.toFixed(1)+'%', yFloor:0});
+
+buildLineChart('chartAndroid', [
+  {color:'var(--accent2)', data: android},
+  {color:'var(--accent3)', data: ios}
+], {yTitle:'Capture-fail rate (%)', yFmt:v=>v.toFixed(0)+'%', yFloor:0});
+
+buildLineChart('chartVol', Object.keys(volIdx).map(k => ({color: volIdx[k].color, data: volIdx[k].data})),
+  {yTitle:'Index (Apr-05 week = 100)', yFmt:v=>v.toFixed(0), yMin:85, yMax:122});
+
+const legendVol = document.getElementById('legendVol');
+Object.keys(volIdx).forEach(k=>{
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  const sw = document.createElement('span');
+  sw.className = 'swatch';
+  sw.style.background = volIdx[k].color;
+  item.appendChild(sw);
+  item.appendChild(document.createTextNode(k));
+  legendVol.appendChild(item);
+});
+</script>
+</body>
+</html>
