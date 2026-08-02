@@ -65,10 +65,14 @@ over `ClaudeAgentOptions`), each invoked as its own subprocess, pinned to
 
 - **Instrumentation Agent** — reads the spec, the sample events' profile
   (`profile.md`, generated on demand), the current wiki, and the
-  production `ddl.sql` for schema conventions. Designs and writes
-  `ddl.sql` + `justification.md`. Tools: `Read, Glob, Grep, Write`. No
-  database access of its own — the schema isn't applied until the Loader
-  runs.
+  production `ddl.sql` for schema conventions. `profile.md` itself comes
+  from `profiler.py`, a small deterministic (non-LLM) parser that reads
+  `events.ndjson` and reports per-field presence/null %, type, cardinality,
+  shape drift, and duplicate IDs per event type — so schema decisions are
+  grounded in what the sample data actually looks like, not guesses.
+  Designs and writes `ddl.sql` + `justification.md`. Tools: `Read, Glob,
+  Grep, Write`. No database access of its own — the schema isn't applied
+  until the Loader runs.
 - **Loader** — not an LLM agent, plain Python. Applies the DDL and loads
   `events.ndjson` into ClickHouse via `clickhouse_connect`, writes
   `load_report.md`. A data-quality finding here (e.g. a 0% join-key
@@ -98,6 +102,14 @@ The context layer is **plain markdown files under `context/`** — an
 `relationship.md`, `log.md`, plus one file per table under `tables/` and
 one per metric under `metrics/`. No ClickHouse table or vector store
 backs it.
+
+Its structure follows an **"LLM wiki" pattern** (`context/SCHEMA.md`
+cites Karpathy's Apr 2026 write-up on this, adapted here): every page
+carries frontmatter (`id`, `kind`, `status`, `confidence`, `source`,
+`last_verified`) so an agent can judge relevance and trust from the
+header alone, and each directory's `index.md` is a small regenerated
+cache an agent reads first to decide which 2–3 pages to open — file
+selection by cheap index, not by scanning the whole wiki.
 
 This was a deliberate choice for the shape of this problem, not an
 oversight:
