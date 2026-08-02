@@ -3,7 +3,7 @@ id: doc.index
 kind: index
 status: verified
 confidence: high
-source: clickathon@78f5870d (ClickHouse Cloud), verified against base_context.md; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — group completion-rate by size, churn analysis
+source: clickathon@78f5870d (ClickHouse Cloud), verified against base_context.md; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — group completion-rate by size, churn analysis; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — share-flow completion rate, channel mix, recipient K-factor, destination spread
 last_verified: 2026-08-02
 links: [doc.schema, doc.business, doc.relationship, doc.known_issues, doc.log]
 ---
@@ -30,12 +30,12 @@ derived from data.
 |---|---|
 | Service | `78f5870d-894f-4405-bf4f-542014537dcb` (org *Edelweiss*, aws ap-south-1) |
 | Database | `clickathon` |
-| Tables | 17: 8 baseline raw event tables + 5 from spec 01 (Express Checkout) + 4 from spec 02 (Group / Family), **no views or materialized views** |
-| Total rows | 2,491,441 (2,480,481 baseline + 5,507 Express Checkout + 5,453 Group/Family, verified via `load_report.md`) |
-| Data window | 2025-12-31 23:41 → 2026-07-01 03:01 (H1 2026 baseline); Express Checkout sample 2026-06-08 → 2026-06-28; Group/Family sample 2026-06-08 → 2026-06-28 |
-| Engine | `SharedMergeTree` on the 8 baseline tables; `MergeTree` on the 9 spec tables (spec 01 + spec 02) |
-| Partitioning | `PARTITION BY toYYYYMM(timestamp)` on all 17 |
-| Sort key | `ORDER BY (id, timestamp, user_id)` on the 8 baseline tables ⚠ see D8; the 5 Express Checkout tables use D8's fix `(toDate(timestamp), device_type, user_id, id)`; the 4 Group/Family tables use a further D8-compliant variant `(toDate(timestamp), group_size, group_id, id)` |
+| Tables | 22: 8 baseline raw event tables + 5 from spec 01 (Express Checkout) + 4 from spec 02 (Group / Family) + 5 from spec 03 (Visa Status Sharing), **no views or materialized views** |
+| Total rows | 2,497,944 (2,480,481 baseline + 5,507 Express Checkout + 5,453 Group/Family + 6,503 Status Sharing, verified via `load_report.md`) |
+| Data window | 2025-12-31 23:41 → 2026-07-01 03:01 (H1 2026 baseline); Express Checkout sample 2026-06-08 → 2026-06-28; Group/Family sample 2026-06-08 → 2026-06-28; Status Sharing sample 2026-06-08 06:00 → 2026-07-01 09:21 |
+| Engine | `SharedMergeTree` on the 8 baseline tables; `MergeTree` on the 14 spec tables (spec 01 + spec 02 + spec 03) |
+| Partitioning | `PARTITION BY toYYYYMM(timestamp)` on all 22 |
+| Sort key | `ORDER BY (id, timestamp, user_id)` on the 8 baseline tables ⚠ see D8; the 5 Express Checkout tables use D8's fix `(toDate(timestamp), device_type, user_id, id)`; the 4 Group/Family tables use a further D8-compliant variant `(toDate(timestamp), group_size, group_id, id)`; the 5 Status Sharing tables each substitute their own leading discriminator (`status_shared`/`channel`/`destination`) — see [tables/index.md](tables/index.md) |
 
 ## Contents
 
@@ -45,7 +45,7 @@ derived from data.
 | [business.md](business.md) | Business model, funnel, verified scale and trend |
 | [relationship.md](relationship.md) | Entities, join map, key formats, join integrity |
 | [known_issues.md](known_issues.md) | **Data traps (D1–D9) + known-issue verdicts (K1–K7)** |
-| [tables/](tables/index.md) | 17 table pages + the shared 30-column envelope |
+| [tables/](tables/index.md) | 22 table pages + the shared 30-column envelope |
 | [metrics/](metrics/index.md) | 7 metric pages with verified formulas and values |
 | [log.md](log.md) | Changelog |
 

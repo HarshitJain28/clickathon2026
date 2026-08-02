@@ -3,7 +3,7 @@ id: doc.relationship
 kind: relationship
 status: verified
 confidence: high
-source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation; out/02_group_family/load_report.md — D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — independent re-confirmation, group completion-rate and churn analysis
+source: clickathon DB — set-membership joins, cardinality and key-format profiling across all 8 tables; out/01_express_checkout/load_report.md — D2 overlap_pct for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md–q04.md — independent re-confirmation; out/02_group_family/load_report.md — D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md–q04.md — independent re-confirmation, group completion-rate and churn analysis; out/03_status_sharing/load_report.md — D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — independent re-confirmation, share-flow completion rate, K-factor
 last_verified: 2026-08-02
 links: [doc.business, doc.known_issues, tables.index]
 ---
@@ -175,6 +175,61 @@ Attributes: `group_size` (`UInt8`, range `[2, 6]`), `relation`
 (`UInt8`, range `[1, 6]`, `group_submitted` only). See
 [tables/group_started.md](tables/group_started.md) and its 3 sibling pages.
 
+### Share
+
+A visa-status share, created at `share_clicked` (spec 03). **1,600 shares**
+exist in the profiled sample (2026-06-08 06:00 → 2026-07-01 09:21), one per
+sharer. Key: `share_id`, `FixedString(32)` — a **spec-local** key that does
+not join `application_id`, `user_id`, or `group_id` outside this spec's own
+5 tables.
+
+Row counts (spec 03 sample):
+
+| Table | Rows | Distinct `share_id` | Has `user_id`? |
+|---|---:|---:|---|
+| `share_clicked` (origin) | 1,600 | 1,600 | yes |
+| `channel_selected` | 1,144 | 1,144 | yes |
+| `link_generated` | 1,144 | 1,144 | yes |
+| `link_opened` (recipient-side) | 2,310 | 922 | **no** |
+| `recipient_cta_clicked` (recipient-side, K-factor) | 305 | 263 | **no** |
+
+**⚠ Recipient-side events carry no `user_id` at all** — confirmed exactly as
+this section anticipated before instrumentation (see below): `link_opened`
+and `recipient_cta_clicked` are keyed only by `share_id`, per `spec.md` and
+`profile.md` (neither shows any of the 30 envelope columns). This is a join
+topology nothing else in this dataset uses — the sharer-side tables join
+each other and the main funnel via `user_id`/`application_id`, but there is
+no column to join sharer-side rows to recipient-side rows on **except
+`share_id` itself**. **2026-08-02 update:** two of the three `share_id`
+join edges are now **verified** by set membership
+(`out/03_status_sharing/analysis/q01.md`, `q03.md`) —
+`share_clicked → channel_selected`/`link_generated` (sharer-side, 71.5%) and
+`link_opened → recipient_cta_clicked` (recipient-side, 100%). **The
+sharer-side ↔ recipient-side edge itself** (e.g. `link_generated.share_id`
+vs. `link_opened.share_id`) **remains unverified** — no `analysis/qNN.md`
+file has checked it yet. See [known_issues.md](known_issues.md) → D1.
+
+**⚠ `application_id` does not join `application_started` — 0% overlap on
+the 3 sharer-side tables.** `application_id` is present on 100% of rows
+across `share_clicked`/`channel_selected`/`link_generated` (the two
+recipient-side tables carry no `application_id` at all). The mandatory D2
+overlap-check ran against `application_started` and returned
+**`overlap_pct = 0.0%`** on all 3 (`out/03_status_sharing/load_report.md`,
+2026-08-02) — the same STOP verdict specs 01 and 02 got. **2026-08-02 —
+independently re-confirmed by all 4 of the Analysis Agent's questions for
+spec 03** (`out/03_status_sharing/analysis/q01.md`–`q04.md`), each of which
+stayed within the share flow's own 5 tables (joined on `share_id`, `user_id`,
+or a table's own `destination`/`channel` column instead) rather than
+attempting the broken `application_id` join. Analyse the share flow
+standalone. See [known_issues.md](known_issues.md) → D2.
+
+Attributes: `status_shared` (`submitted`/`processing`/`approved`,
+sharer-side), `channel` (`whatsapp`/`copy_link`/`email`/`sms`),
+`recipient_is_new_user` (`Bool`, `link_opened` only — a real K-factor /
+viral-acquisition signal), `cta` (single-valued today,
+`start_own_application`, `recipient_cta_clicked` only). See
+[tables/share_clicked.md](tables/share_clicked.md) and its 4 sibling pages.
+
 ### Entities the incoming specs will add
 
 - **Group** (spec 02) — **instrumented 2026-08-02, see "Group" above.** The
@@ -185,8 +240,21 @@ Attributes: `group_size` (`UInt8`, range `[2, 6]`), `relation`
   joining on `group_id` (spec-local key) instead — none found a usable path
   back to `Application`. See `out/02_group_family/analysis/q01.md`–`q04.md`
   and the completion-rate/churn findings added above.
-- **Share** (spec 03) — `share_id`. Recipient events carry **no `user_id`**, a
-  join topology nothing in this dataset currently supports.
+
+**Share (spec 03) — instrumented 2026-08-02, see "Share" above.** The
+"recipient events carry no `user_id`" topology anticipated here before
+instrumentation is confirmed exactly as expected. **2026-08-02:** all 4 of
+the Analysis Agent's PM-question answers for this spec independently
+worked around the broken `application_id` join (`out/03_status_sharing/
+analysis/q01.md`–`q04.md`) — share-flow completion rate is 71.5% overall,
+flat by `status_shared`; channel mix is WhatsApp-dominant (54.6% selection
+share, also top new-user-open channel); the recipient K-factor is ~38%
+pure-new-user / 0% pure-existing-user (after correcting for a
+`recipient_is_new_user` self-contradiction in 51.2% of shares); AU leads
+destination reach, AE leads destination conversion efficiency. **Still
+open:** the sharer-side ↔ recipient-side `share_id` join itself (as opposed
+to the two same-side edges, both now verified) has not been
+set-membership checked by any analysis question yet.
 
 **Spec 01 (Express Checkout) — instrumented, 2026-08-01, no new entity.**
 Checked against this list per `out/01_express_checkout/justification.md`:
@@ -238,6 +306,15 @@ applied — a real, undocumented top-of-funnel cohort.
 - **`group_id`** — spec-local (spec 02 only). Joins `group_started` →
   `traveller_added`/`traveller_removed`/`group_submitted`. Does not join
   `application_id` or `user_id`.
+- **`share_id`** — spec-local (spec 03 only). Intended to join
+  `share_clicked`/`channel_selected`/`link_generated` (sharer-side) →
+  `link_opened`/`recipient_cta_clicked` (recipient-side). **2026-08-02:**
+  both same-side edges are **verified** by set membership
+  (`share_clicked → channel_selected`/`link_generated`, 71.5%,
+  `analysis/q01.md`; `link_opened → recipient_cta_clicked`, 100%,
+  `analysis/q03.md`) — the **sharer-side ↔ recipient-side edge itself**
+  remains **unverified**. Does not join `application_id`, `user_id`, or
+  `group_id`.
 
 Where `application_id` appears:
 

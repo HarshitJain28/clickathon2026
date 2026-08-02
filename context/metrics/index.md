@@ -24,6 +24,8 @@ H1 2026 (2026-01-01 → 2026-07-01).
 | [on_time_delivery_rate](on_time_delivery_rate.md) | — | **unverifiable** | low |
 | [express_conversion_lift](express_conversion_lift.md) | +35.2pp (83.02% vs 47.86%) | verified | medium |
 | [group_completion_rate_by_size](group_completion_rate_by_size.md) | 69.47%→31.11% (size 2→6), 57.33% overall | verified | high |
+| [share_completion_rate](share_completion_rate.md) | 71.5% overall, flat 70.1%–73.3% by status | verified | high |
+| [recipient_conversion_k_factor](recipient_conversion_k_factor.md) | ~38% pure-new-user, 0% pure-existing-user | verified | medium |
 
 ## Three rules for reporting any of these
 

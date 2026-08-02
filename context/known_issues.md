@@ -3,7 +3,7 @@ id: doc.known_issues
 kind: known_issues
 status: verified
 confidence: high
-source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size
+source: clickathon DB — every claim below tested by query; see each entry for evidence; out/01_express_checkout/load_report.md — D2 verdict for spec 01's 5 tables; out/01_express_checkout/analysis/q01.md–q04.md — K1 re-test, D1 extension; out/02_group_family/load_report.md — D2 verdict for spec 02's 4 tables; out/02_group_family/analysis/q01.md–q04.md — D1/D2 re-confirmation, group_completion_rate_by_size; out/03_status_sharing/load_report.md — D2 verdict for 3 of spec 03's 5 tables; out/03_status_sharing/analysis/q01.md–q04.md — D1/D2 re-confirmation, recipient_is_new_user self-contradiction (D3-shaped)
 last_verified: 2026-08-02
 links: [doc.relationship, doc.business, metrics.index, tables.index]
 ---
@@ -54,6 +54,18 @@ SELECT
 Valid because the funnel is **perfectly nested** (100% of each stage's users
 appear upstream). For segmented funnels, anchor on the stage owning the
 dimension and semi-join with `IN`.
+
+**2026-08-02 addendum (source: `out/03_status_sharing/analysis/q01.md`,
+`q03.md`):** spec 03's `share_id` join topology (sharer-side →
+recipient-side) is now **partially** verified by set membership — two of
+the three edges hold: `share_clicked.share_id ⊇ channel_selected.share_id`
+`⊇`/`=` `link_generated.share_id` (71.5% step-through, flat across
+`status_shared`, `q01.md`) and `recipient_cta_clicked.share_id ⊆
+link_opened.share_id` (100%, `q03.md`). **The sharer-side ↔ recipient-side
+edge itself** (e.g. `link_generated.share_id` vs. `link_opened.share_id`)
+**has not been checked by any analysis question yet** — still open. See
+[share_completion_rate.md](metrics/share_completion_rate.md) and
+[recipient_conversion_k_factor.md](metrics/recipient_conversion_k_factor.md).
 
 Time-ordered functions remain valid **within** a table, and for new feature
 tables **after** verifying monotonicity:
@@ -126,6 +138,7 @@ FROM clickathon.<new_table>
 |---|---|---:|---|---|
 | **01 — Express Checkout** | `express_checkout_shown`, `express_checkout_selected`, `saved_method_used`, `otp_entered`, `express_payment_confirmed` | **0.0%** (all 5) | **STOP** — analyse standalone | 2026-08-01 |
 | **02 — Group / Family** | `group_started`, `traveller_added`, `traveller_removed`, `group_submitted` | **0.0%** (all 4) | **STOP** — analyse standalone | 2026-08-02 |
+| **03 — Visa Status Sharing** | `share_clicked`, `channel_selected`, `link_generated` (3 of 5 — the other 2 carry no `application_id`) | **0.0%** (all 3) | **STOP** — analyse standalone | 2026-08-02 |
 
 Source: `out/01_express_checkout/load_report.md`. The normalize step ran
 (dashes inserted, 32→36 chars) and the verify query ran against
@@ -160,6 +173,28 @@ each of which stayed within the Group/Family flow's own 4 tables (joined on
 `application_started` or the main funnel — every finding in q01–q04 is
 scoped to the group flow standalone, as D2 requires.
 
+**2026-08-02 — spec 03 (Visa Status Sharing) confirms the same pattern a
+fourth time, on the subset of tables that carry the column.** Source:
+`out/03_status_sharing/load_report.md`. The normalize step ran on
+`share_clicked`/`channel_selected`/`link_generated` (the 3 sharer-side
+tables — `link_opened`/`recipient_cta_clicked` carry no `application_id` at
+all, per spec design) and the verify query ran against
+`application_started` — **none matched** (`overlap_pct = 0.0%` on all 3).
+Do not join any of this spec's tables to the main funnel via
+`application_id`. See [relationship.md](relationship.md) → "Share" and
+[tables/share_clicked.md](tables/share_clicked.md) and its 4 sibling pages.
+
+**2026-08-02 — independently re-confirmed by all 4 of the Analysis Agent's
+questions for spec 03** (`out/03_status_sharing/analysis/q01.md`–`q04.md`),
+each of which stayed within the share flow's own 5 tables (joined on
+`share_id`, `user_id`, or a table's own `destination`/`channel` column
+instead) rather than attempting the broken `application_id` join. No
+question found a working path back to `application_started` or the main
+funnel — every finding in q01–q04 is scoped to the share flow standalone,
+as D2 requires. The still-unverified **sharer-side ↔ recipient-side**
+`share_id` join (as opposed to `application_id`) is a separate, D1-tracked
+item — see D1 below.
+
 ## D3 — Capture-quality flag contradicts itself ⛔ CRITICAL
 
 `is_crossed_failed_attempt_threshold` is described as a capture-quality proxy. It
@@ -183,6 +218,21 @@ SELECT
   round(100.0*countIf(retry_count < failed_attempt_threshold)/count(),2)  AS pass_rate_retry_derived
 FROM clickathon.document_uploaded
 ```
+
+**2026-08-02 addendum — same shape of flag found on spec 03 (source:
+`out/03_status_sharing/analysis/q03.md`):** `link_opened.recipient_is_new_user`
+is not stable per `share_id`. When a link is reopened, different opens of
+the *same* share sometimes carry `true` and sometimes `false` — **472 of
+922 distinct shares (51.2%) show both values across their opens.** This is
+not the same column/table as the original D3 finding (`document_uploaded`),
+but the same class of self-contradicting capture/tracking flag. Fix
+applied: segment by internal consistency (**pure new-user** /
+**pure existing-user** / **mixed**) before computing any conversion rate
+off this flag, rather than trusting a single per-open value — see
+[recipient_cta_clicked.md](tables/recipient_cta_clicked.md) and
+[metrics/recipient_conversion_k_factor.md](metrics/recipient_conversion_k_factor.md)
+for the resulting segmented K-factor (38.13% pure-new-user / 0.00%
+pure-existing-user / 31.57% mixed).
 
 ## D4 — "Sessions" are not sessions
 
