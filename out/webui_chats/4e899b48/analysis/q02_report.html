@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Where are we losing conversions? — Funnel &amp; Segment Report</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --panel-border: #2a334a;
+    --text: #e8ecf5;
+    --text-dim: #9aa5bd;
+    --accent: #5ea0ff;
+    --accent2: #ff9f5e;
+    --good: #4fd18b;
+    --bad: #ff6b6b;
+    --grid: #2a334a;
+    --bar-base: #3a4666;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --panel-border: #dde3ef;
+      --text: #1b2333;
+      --text-dim: #5b6478;
+      --accent: #2564cf;
+      --accent2: #d8722a;
+      --good: #1f9d5c;
+      --bad: #d0403f;
+      --grid: #e3e7f0;
+      --bar-base: #c7d0e6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: var(--text-dim); font-size: 0.92rem; margin-bottom: 28px; }
+  .scope {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 28px;
+  }
+  .scope b { color: var(--text); }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 22px 24px 26px;
+    margin-bottom: 24px;
+  }
+  h2 { font-size: 1.15rem; margin: 0 0 4px; }
+  .desc { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 18px; max-width: 760px; }
+  svg { display: block; width: 100%; height: auto; font-family: inherit; }
+  .axis-label { fill: var(--text-dim); font-size: 11px; }
+  .val-label { fill: var(--text); font-size: 11.5px; font-weight: 600; }
+  .cat-label { fill: var(--text-dim); font-size: 12px; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .callout {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .callout .card {
+    flex: 1 1 220px;
+    background: rgba(94,160,255,0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.85rem;
+  }
+  .callout .card .n { font-size: 1.3rem; font-weight: 700; }
+  .good-text { color: var(--good); }
+  .bad-text { color: var(--bad); }
+  footer { color: var(--text-dim); font-size: 0.78rem; text-align: center; margin-top: 40px; }
+  .legend { display: flex; gap: 18px; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Where are we losing conversions?</h1>
+  <div class="subtitle">Main visa-application funnel, segmented by device / geo / destination — live query against <code>clickathon</code></div>
+
+  <div class="scope">
+    <b>Scope:</b> H1 2026 baseline data (2025‑12‑31 23:41 → 2026‑07‑01 03:01), 1,000,000 <code>destination_card_clicked</code> users → 7,054 <code>purchase_completed</code> users.
+    All counts computed by exact <code>uniqExact(user_id)</code> <b>set membership</b> — <i>not</i> <code>windowFunnel</code>, which understates late‑funnel conversion by ~52% on this dataset (known data trap D1).
+    Query run 2026‑08‑02.
+  </div>
+
+  <section>
+    <h2>1. The funnel — two real leaks</h2>
+    <div class="desc">Bar width is log‑scaled (raw counts span 1,000,000 → 7,054); the label on each bar is the true user count. The number between bars is the drop‑off at that step.</div>
+    <svg id="funnelChart" viewBox="0 0 960 300"></svg>
+    <div class="callout">
+      <div class="card"><div class="n bad-text">86.76%</div>application started → document uploaded — <b>133,967 users lost</b>, the largest absolute leak, and (see §2) flat across every device segment. A product/UX problem, not a targeting problem.</div>
+      <div class="card"><div class="n bad-text">52.14%</div>pay now clicked → purchase completed — <b>7,685 users lost</b>. Smaller in absolute terms but this is where nearly all the device/geo/destination variation shown below concentrates.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. By device</h2>
+    <div class="desc">Funnel conversion = purchased ÷ started (n = 154,413 started). The paired bar shows the pay‑now → purchase rate — the step where the device gap actually opens up; the earlier application → document‑upload step is flat (13.0%–13.6%) across all four devices.</div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--accent)"></span>Funnel conversion (purchased ÷ started)</span>
+      <span><span class="swatch" style="background:var(--accent2)"></span>Pay‑now → purchase rate</span>
+    </div>
+    <svg id="deviceChart" viewBox="0 0 960 260"></svg>
+  </section>
+
+  <section>
+    <h2>3. By geo (<code>geoip_country_code</code>)</h2>
+    <div class="desc">Funnel conversion by country, sorted descending, top 10 by volume. India is the dominant volume geo (86,506 started, 56% of all applications) but sits mid‑pack on conversion.</div>
+    <svg id="geoChart" viewBox="0 0 960 340"></svg>
+  </section>
+
+  <section>
+    <h2>4. By destination</h2>
+    <div class="desc">Funnel conversion by destination country, all 27 values, sorted descending. Spread is the narrowest of the three cuts (~1.6pp, KR to QA) with no obvious regional clustering — Gulf destinations span both the best (QA) and only mid‑pack (AE).</div>
+    <svg id="destChart" viewBox="0 0 960 640"></svg>
+  </section>
+
+  <section>
+    <h2>Takeaways</h2>
+    <div class="desc" style="margin-bottom:0">
+      <ul>
+        <li><b>Fix the big one first:</b> 86.76% of started applications never upload a document — uniform across every segment cut here, so it's a UX/flow fix, not a segment‑targeted one.</li>
+        <li><b>The segment-sensitive leak is at payment:</b> pay‑now → purchase swings ~9pp by geo (AE 56.2% vs SG 41.4%) and ~4pp by device (iOS 49.9% vs Android 46.4%). No known issue in the wiki explains it — K1 ("Gulf/iOS abandon at pay step") is refuted here too: iOS is the <i>best</i>-converting device, and AE the <i>best</i>-converting geo, both against K1's prediction.</li>
+        <li><b>Overall funnel conversion is declining ~20% relative across H1</b> (4.91% → 3.93%, per <code>metrics/funnel_conversion.md</code>), unexplained by K4 (refuted as Schengen‑specific). This decline is broader than any single segment shown here and worth flagging as an open question.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>Generated by the Analytics Agent · clickathon service 78f5870d‑894f‑4405‑bf4f‑542014537dcb · database clickathon · 2026‑08‑02</footer>
+</div>
+
+<script>
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // ---------- 1. Funnel (log-scaled horizontal bars) ----------
+  (function funnel() {
+    const svg = document.getElementById('funnelChart');
+    const stages = [
+      { label: 'destination_card_clicked', n: 1000000 },
+      { label: 'application_started', n: 154413, drop: 84.56 },
+      { label: 'document_uploaded', n: 20446, drop: 86.76 },
+      { label: 'pay_now_clicked', n: 14739, drop: 27.91 },
+      { label: 'purchase_completed', n: 7054, drop: 52.14 }
+    ];
+    const W = 960, H = 300, left = 240, right = 60, rowH = 46, top = 20;
+    const maxLog = Math.log10(stages[0].n);
+    const scale = v => (W - left - right) * (Math.log10(v) / maxLog);
+    stages.forEach((s, i) => {
+      const y = top + i * rowH;
+      svg.appendChild(el('text', { x: left - 12, y: y + rowH * 0.42, class: 'cat-label', 'text-anchor': 'end' })).textContent = s.label;
+      const w = scale(s.n);
+      const bar = el('rect', { x: left, y: y + 6, width: Math.max(w, 2), height: rowH - 20, rx: 5, fill: i === stages.length - 1 ? 'var(--good)' : 'var(--accent)' });
+      svg.appendChild(bar);
+      const vlabel = el('text', { x: left + w + 10, y: y + rowH * 0.42, class: 'val-label' });
+      vlabel.textContent = s.n.toLocaleString();
+      svg.appendChild(vlabel);
+      if (s.drop !== undefined) {
+        const dlabel = el('text', { x: left + w + 10, y: y + rowH * 0.42 + 15, class: 'axis-label' });
+        dlabel.textContent = '−' + s.drop.toFixed(2) + '% drop from prior stage';
+        dlabel.setAttribute('fill', 'var(--bad)');
+        svg.appendChild(dlabel);
+      }
+    });
+  })();
+
+  // ---------- generic vertical grouped/simple bar chart ----------
+  function barChart(svgId, opts) {
+    const svg = document.getElementById(svgId);
+    const { categories, series, W, H, yMax, yFmt, marginLeft, marginBottom, rotateLabels } = opts;
+    const marginTop = 20, marginRight = 20;
+    const plotW = W - marginLeft - marginRight;
+    const plotH = H - marginTop - marginBottom;
+    const n = categories.length;
+    const groupW = plotW / n;
+    const seriesCount = series.length;
+    const barGap = 4;
+    const barW = Math.min(38, (groupW - barGap * (seriesCount + 1)) / seriesCount);
+
+    // gridlines + y axis
+    const ticks = 5;
+    for (let t = 0; t <= ticks; t++) {
+      const val = (yMax / ticks) * t;
+      const y = marginTop + plotH - (val / yMax) * plotH;
+      svg.appendChild(el('line', { x1: marginLeft, x2: W - marginRight, y1: y, y2: y, class: 'gridline' }));
+      const lbl = el('text', { x: marginLeft - 8, y: y + 4, class: 'axis-label', 'text-anchor': 'end' });
+      lbl.textContent = yFmt(val);
+      svg.appendChild(lbl);
+    }
+
+    categories.forEach((cat, i) => {
+      const gx = marginLeft + i * groupW;
+      series.forEach((s, si) => {
+        const val = s.values[i];
+        const bh = (val / yMax) * plotH;
+        const bx = gx + barGap + si * (barW + barGap);
+        const by = marginTop + plotH - bh;
+        svg.appendChild(el('rect', { x: bx, y: by, width: barW, height: Math.max(bh, 1), rx: 3, fill: s.color }));
+        const vlabel = el('text', { x: bx + barW / 2, y: by - 5, class: 'val-label', 'text-anchor': 'middle' });
+        vlabel.setAttribute('font-size', '10.5');
+        vlabel.textContent = yFmt(val);
+        svg.appendChild(vlabel);
+      });
+      const clabel = el('text', {
+        x: gx + groupW / 2,
+        y: marginTop + plotH + 18,
+        class: 'cat-label',
+        'text-anchor': rotateLabels ? 'end' : 'middle'
+      });
+      if (rotateLabels) {
+        clabel.setAttribute('transform', `rotate(-55 ${gx + groupW / 2} ${marginTop + plotH + 18})`);
+      }
+      clabel.textContent = cat;
+      svg.appendChild(clabel);
+    });
+
+    // axis line
+    svg.appendChild(el('line', { x1: marginLeft, x2: marginLeft, y1: marginTop, y2: marginTop + plotH, class: 'gridline' }));
+    svg.appendChild(el('line', { x1: marginLeft, x2: W - marginRight, y1: marginTop + plotH, y2: marginTop + plotH, class: 'gridline' }));
+  }
+
+  // ---------- 2. Device ----------
+  barChart('deviceChart', {
+    categories: ['iOS', 'Desktop', 'web-user-b2c', 'Android'],
+    series: [
+      { values: [5.03, 4.68, 4.36, 4.08], color: 'var(--accent)' },
+      { values: [49.88, 46.51, 46.08, 46.41], color: 'var(--accent2)' }
+    ],
+    W: 960, H: 260, yMax: 55, yFmt: v => v.toFixed(0) + '%',
+    marginLeft: 50, marginBottom: 40, rotateLabels: false
+  });
+
+  // ---------- 3. Geo ----------
+  const geo = [
+    ['AE', 5.38], ['QA', 4.81], ['GB', 4.74], ['OM', 4.61], ['OTHER', 4.58],
+    ['AU', 4.66], ['SA', 4.50], ['IN', 4.38], ['US', 4.36], ['SG', 3.69]
+  ].sort((a, b) => b[1] - a[1]);
+  barChart('geoChart', {
+    categories: geo.map(d => d[0]),
+    series: [{ values: geo.map(d => d[1]), color: 'var(--accent)' }],
+    W: 960, H: 340, yMax: 6, yFmt: v => v.toFixed(1) + '%',
+    marginLeft: 50, marginBottom: 40, rotateLabels: false
+  });
+
+  // ---------- 4. Destination ----------
+  const dest = [
+    ['QA', 5.69], ['FR', 5.29], ['OM', 5.19], ['MV', 5.04], ['CA', 4.93],
+    ['SG', 4.85], ['JP', 4.81], ['TR', 4.80], ['AU', 4.76], ['LK', 4.72],
+    ['ZA', 4.72], ['SA', 4.70], ['EG', 4.68], ['VN', 4.65], ['MA', 4.65],
+    ['GB', 4.59], ['HK', 4.58], ['ES', 4.56], ['CH', 4.53], ['IT', 4.53],
+    ['MY', 4.48], ['GR', 4.42], ['AE', 4.40], ['US', 4.39], ['TH', 4.31],
+    ['ID', 4.23], ['KR', 4.11]
+  ];
+  barChart('destChart', {
+    categories: dest.map(d => d[0]),
+    series: [{ values: dest.map(d => d[1]), color: 'var(--accent)' }],
+    W: 960, H: 640, yMax: 6, yFmt: v => v.toFixed(1) + '%',
+    marginLeft: 50, marginBottom: 130, rotateLabels: true
+  });
+})();
+</script>
+</body>
+</html>
