@@ -125,6 +125,16 @@ oversight:
   that genuinely needs current data — the wiki only needs to hold the
   facts *about* the schema, not the schema's data.
 
+**Bootstrap (Stage 0), before any of this is trusted.** The wiki isn't
+seeded from the handed-over `base_context.md` as-is — that document is
+warned to be imperfect. Every factual claim in it was tested against the
+live database via the ClickHouse MCP server (schemas, distributions,
+whether a claimed effect actually shows up) and recorded as `verified` or
+`refuted` with the query that proved it; only the document's *business
+intent* (why a metric matters) was kept as-is, since data can't verify
+intent. This is a one-time pass, repeated whenever new tables land, and
+its findings/method are recorded in `data_vs_base_context.md`.
+
 The tradeoff: this doesn't scale to a very large number of tables/metrics
 without some kind of retrieval on top of the flat files. **Graph-based
 RAG over the context wiki is on our future-ideas list** for exactly that
