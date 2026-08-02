@@ -65,10 +65,14 @@ over `ClaudeAgentOptions`), each invoked as its own subprocess, pinned to
 
 - **Instrumentation Agent** — reads the spec, the sample events' profile
   (`profile.md`, generated on demand), the current wiki, and the
-  production `ddl.sql` for schema conventions. Designs and writes
-  `ddl.sql` + `justification.md`. Tools: `Read, Glob, Grep, Write`. No
-  database access of its own — the schema isn't applied until the Loader
-  runs.
+  production `ddl.sql` for schema conventions. `profile.md` itself comes
+  from `profiler.py`, a small deterministic (non-LLM) parser that reads
+  `events.ndjson` and reports per-field presence/null %, type, cardinality,
+  shape drift, and duplicate IDs per event type — so schema decisions are
+  grounded in what the sample data actually looks like, not guesses.
+  Designs and writes `ddl.sql` + `justification.md`. Tools: `Read, Glob,
+  Grep, Write`. No database access of its own — the schema isn't applied
+  until the Loader runs.
 - **Loader** — not an LLM agent, plain Python. Applies the DDL and loads
   `events.ndjson` into ClickHouse via `clickhouse_connect`, writes
   `load_report.md`. A data-quality finding here (e.g. a 0% join-key
@@ -99,6 +103,14 @@ The context layer is **plain markdown files under `context/`** — an
 one per metric under `metrics/`. No ClickHouse table or vector store
 backs it.
 
+Its structure follows an **"LLM wiki" pattern** (`context/SCHEMA.md`
+cites Karpathy's Apr 2026 write-up on this, adapted here): every page
+carries frontmatter (`id`, `kind`, `status`, `confidence`, `source`,
+`last_verified`) so an agent can judge relevance and trust from the
+header alone, and each directory's `index.md` is a small regenerated
+cache an agent reads first to decide which 2–3 pages to open — file
+selection by cheap index, not by scanning the whole wiki.
+
 This was a deliberate choice for the shape of this problem, not an
 oversight:
 - The wiki's job is to hold a small number of durable, structured facts
@@ -113,6 +125,16 @@ oversight:
   that genuinely needs current data — the wiki only needs to hold the
   facts *about* the schema, not the schema's data.
 
+**Bootstrap (Stage 0), before any of this is trusted.** The wiki isn't
+seeded from the handed-over `base_context.md` as-is — that document is
+warned to be imperfect. Every factual claim in it was tested against the
+live database via the ClickHouse MCP server (schemas, distributions,
+whether a claimed effect actually shows up) and recorded as `verified` or
+`refuted` with the query that proved it; only the document's *business
+intent* (why a metric matters) was kept as-is, since data can't verify
+intent. This is a one-time pass, repeated whenever new tables land, and
+its findings/method are recorded in `data_vs_base_context.md`.
+
 The tradeoff: this doesn't scale to a very large number of tables/metrics
 without some kind of retrieval on top of the flat files. **Graph-based
 RAG over the context wiki is on our future-ideas list** for exactly that
@@ -121,18 +143,27 @@ but is not implemented in this submission.
 
 ## Observability: Langfuse tracing, and ClickStack/LibreChat
 
-**Langfuse is wired into all three agent scripts** (`instrumentation_agent.py`,
-`context_agent.py`, `analysis_agent.py`) via `langfuse.get_client()` and
-the `@observe` decorator, at three levels of granularity per run:
+**Langfuse is wired into every stage**, at two layers:
 
-1. **Run-level span** — one span per script invocation
-   (`instrumentation-agent-run`, `context-agent-run`,
-   `analysis-agent-run`), recording input paths and a final summary.
-2. **Agent-level span** — one span around the actual `query()` call to
-   the Claude Agent SDK.
-3. **Per-tool-call events and per-LLM-call generations** — every tool
-   use (Read/Write/Grep/MCP calls) is logged as an event; every LLM call
-   is logged as a `generation` observation with token usage and cost, so
+1. **One unified trace per run, across processes.** Each pipeline stage
+   is its own OS process, which would normally scatter a single spec
+   onboarding across ~6 disconnected Langfuse traces. `orchestrator.py`
+   opens one root span (`onboard-spec:<spec_name>`) and, for each stage
+   (Instrumentation, Loader, Context pass 1, Analysis, Context pass 2),
+   a child span whose trace/span ids it exports into that subprocess's
+   environment (`langfuse_trace.py`). Each agent picks those ids up via
+   `attach_to_parent(...)` and nests its own spans underneath instead of
+   starting a new trace — so the whole run reads as one tree. This falls
+   back to a no-op when a script is invoked standalone (e.g. directly
+   from the CLI), so it still gets its own trace as before. The web UI's
+   human-approval gate (which must launch Instrumentation separately from
+   the rest of the pipeline) mints the trace id itself and the
+   orchestrator joins it rather than starting a second one.
+2. **Per-agent detail inside each span**, via `langfuse.get_client()`
+   and `@observe`: a run-level span (input paths, final summary), an
+   agent-level span around the `query()` call to the Claude Agent SDK,
+   a per-tool-call event for every Read/Write/Grep/MCP call, and a
+   `generation` observation per LLM call with token usage and cost — so
    it shows up in Langfuse's usage/cost dashboards. Span metadata also
    captures turn count, tool-call count, duration, total cost, and
    error/stop-reason.
