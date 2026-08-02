@@ -1,0 +1,170 @@
+# Architecture
+
+## Overview
+
+C·ATLYST is a pipeline of three Claude-based agents, chained by a thin
+Python orchestrator, that turns two inputs — a feature spec (`spec.md`) and
+a sample of raw events (`events.ndjson`) — into (a) a ClickHouse table for
+the new data, (b) an updated markdown context wiki describing that table
+and any quirks found in it, and (c) grounded answers to the PM questions
+listed in the spec.
+
+`orchestrator.py` has no logic of its own beyond invoking each step as a
+subprocess, in order, and stopping on the first non-zero exit code:
+
+```
+spec.md + events.ndjson
+        │
+        ▼
+┌────────────────────┐
+│ Instrumentation     │  reads context/ + prod ddl.sql, designs a new
+│ Agent               │  ClickHouse schema, writes ddl.sql + justification.md
+└─────────┬──────────┘
+          ▼
+┌────────────────────┐
+│ Loader              │  deterministic Python — applies the DDL, loads
+│ (not an LLM agent)  │  events.ndjson, writes load_report.md
+└─────────┬──────────┘
+          ▼
+┌────────────────────┐
+│ Context Agent       │  PASS 1 — publishes the new table page + any
+│ (pass 1)            │  known-issue caveats to context/ BEFORE analysis runs
+└─────────┬──────────┘
+          ▼
+┌────────────────────┐
+│ Question Extractor  │  parses "## Questions the PM will ask" out of
+│                      │  spec.md, fans out one Analysis Agent per question,
+│                      │  all concurrent (ThreadPoolExecutor)
+└─────────┬──────────┘
+          ▼
+┌────────────────────┐
+│ Analysis Agent × N   │  read-only against context/, queries ClickHouse
+│ (concurrent)         │  live via MCP, writes qNN.md (+ qNN_report.html)
+└─────────┬──────────┘
+          ▼
+┌────────────────────┐
+│ Context Agent       │  PASS 2 — single writer, consolidates every
+│ (pass 2)            │  qNN.md's findings into context/
+└─────────┬──────────┘
+          ▼
+  Answer(s) back to the PM
+```
+
+Every step hands off through **files on disk**, not in-process calls or
+direct agent-to-agent messages — `orchestrator.py` invokes each stage as a
+separate `subprocess.run(...)`, passing the same `out_dir` (and
+`--context-dir`) along the chain. This keeps every stage independently
+resumable, inspectable, and traceable, at the cost of an extra process
+per step.
+
+## The three agents and how they hand off
+
+All three are Claude agents built on the `claude-agent-sdk` (`query()`
+over `ClaudeAgentOptions`), each invoked as its own subprocess, pinned to
+`claude-sonnet-5` so every run uses a known, consistently-priced model.
+
+- **Instrumentation Agent** — reads the spec, the sample events' profile
+  (`profile.md`, generated on demand), the current wiki, and the
+  production `ddl.sql` for schema conventions. Designs and writes
+  `ddl.sql` + `justification.md`. Tools: `Read, Glob, Grep, Write`. No
+  database access of its own — the schema isn't applied until the Loader
+  runs.
+- **Loader** — not an LLM agent, plain Python. Applies the DDL and loads
+  `events.ndjson` into ClickHouse via `clickhouse_connect`, writes
+  `load_report.md`. A data-quality finding here (e.g. a 0% join-key
+  overlap) does not stop the pipeline — it's recorded for the Context
+  Agent to document, not treated as a failure.
+- **Context Agent** — the only agent allowed to write to `context/`. Runs
+  twice per spec: pass 1 reads the Instrumentation Agent's output
+  (`ddl.sql`, `justification.md`, `profile.md`, `load_report.md`) and
+  publishes the new table page and any known-issue caveats *before*
+  Analysis runs, so Analysis has real facts to orient from instead of
+  re-deriving them; pass 2, after every Analysis Agent has finished,
+  consolidates all `qNN.md` findings into the wiki as the single writer,
+  so nothing races. It has no live database access of its own — it only
+  cites what the Loader and Analysis Agent already found.
+- **Analysis Agent** — read-only against `context/` by design, so
+  nothing writes to the wiki mid-flight while several of these run
+  concurrently. It's the only agent with ClickHouse access, via the
+  ClickHouse Cloud MCP server, so it can check its answer against live
+  data rather than trusting the wiki's numbers blindly. One run per PM
+  question, all concurrent; writes `qNN.md` and, when the question calls
+  for it, a `qNN_report.html`.
+
+## Where the context layer is stored, and why
+
+The context layer is **plain markdown files under `context/`** — an
+`index.md` entry point, `business.md`, `known_issues.md`,
+`relationship.md`, `log.md`, plus one file per table under `tables/` and
+one per metric under `metrics/`. No ClickHouse table or vector store
+backs it.
+
+This was a deliberate choice for the shape of this problem, not an
+oversight:
+- The wiki's job is to hold a small number of durable, structured facts
+  (schema, known join issues, metric definitions) that get read in full
+  or by section, not searched by similarity — a flat file per concern is
+  enough, and keeps diffs human-reviewable in a PR.
+- One file per table/metric means an agent updates a single page instead
+  of rewriting one giant document, and a human can read exactly what
+  changed.
+- It avoids a second stateful system to run and keep in sync. The
+  Analysis Agent already has live ClickHouse access via MCP for anything
+  that genuinely needs current data — the wiki only needs to hold the
+  facts *about* the schema, not the schema's data.
+
+The tradeoff: this doesn't scale to a very large number of tables/metrics
+without some kind of retrieval on top of the flat files. **Graph-based
+RAG over the context wiki is on our future-ideas list** for exactly that
+reason — richer retrieval for relationships, joins, and metric lineage —
+but is not implemented in this submission.
+
+## Observability: Langfuse tracing, and ClickStack/LibreChat
+
+**Langfuse is wired into all three agent scripts** (`instrumentation_agent.py`,
+`context_agent.py`, `analysis_agent.py`) via `langfuse.get_client()` and
+the `@observe` decorator, at three levels of granularity per run:
+
+1. **Run-level span** — one span per script invocation
+   (`instrumentation-agent-run`, `context-agent-run`,
+   `analysis-agent-run`), recording input paths and a final summary.
+2. **Agent-level span** — one span around the actual `query()` call to
+   the Claude Agent SDK.
+3. **Per-tool-call events and per-LLM-call generations** — every tool
+   use (Read/Write/Grep/MCP calls) is logged as an event; every LLM call
+   is logged as a `generation` observation with token usage and cost, so
+   it shows up in Langfuse's usage/cost dashboards. Span metadata also
+   captures turn count, tool-call count, duration, total cost, and
+   error/stop-reason.
+
+Each run prints its Langfuse trace URL and flushes on exit.
+
+**ClickStack and LibreChat are not integrated in this submission.**
+ClickStack appears only as a stretch idea in the pitch deck (a
+system-level companion to Langfuse's agent/LLM-level tracing, if we had
+more time); LibreChat isn't referenced anywhere in the codebase. Langfuse
+covers what we actually needed for this scope — per-agent and per-LLM-call
+tracing across a multi-process pipeline — so we didn't build the extra
+system-level view or a chat-UI integration on top of it.
+
+## LLM provider(s), and why
+
+**Anthropic Claude**, exclusively, via the `claude-agent-sdk` package —
+no other provider SDK (OpenAI, Google, etc.) is imported anywhere in the
+repo, including the web UI, which only shells out to these same Python
+scripts and never calls an LLM directly itself.
+
+All three agents pin `AGENT_MODEL = "claude-sonnet-5"` rather than
+letting the SDK/CLI resolve a default, so every run uses a known,
+consistently-priced model instead of drifting onto whatever the default
+happens to be at run time. Authentication goes through
+`CLAUDE_CODE_OAUTH_TOKEN`, the env var the Claude Agent SDK's CLI
+subprocess reads.
+
+We chose the Claude Agent SDK specifically because this problem is a
+multi-step, tool-using agent pipeline (read files, design schema, call
+MCP, write files) rather than a single completion call — the SDK's
+built-in tool-use loop, `ClaudeAgentOptions` (allowed tools, MCP server
+registration), and native Langfuse-friendly usage/cost reporting per turn
+fit that shape directly, without us having to hand-roll a tool-calling
+loop against a lower-level chat completions API.
