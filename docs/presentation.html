@@ -1,4 +1,4 @@
-<title>Atlys · Click-a-thon 2026</title>
+<title>C·ATLYST · Click-a-thon 2026</title>
 <style>
   :root {
     --bg: #0e0f13;
@@ -138,6 +138,24 @@
     color: var(--muted);
     max-width: 46ch;
   }
+  .brand {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(3.2rem, 9vw, 7.2rem);
+    line-height: 1;
+    letter-spacing: -.01em;
+    margin: 0;
+  }
+  .brand .c-part { color: var(--teal); }
+  .brand .atlys-part { color: var(--yellow); }
+  .brand .t-part { color: var(--dim); }
+  .brand-key {
+    display: flex; gap: 1.6rem; flex-wrap: wrap;
+    margin-top: 1.6rem; font-family: var(--mono); font-size: .85rem; color: var(--muted);
+  }
+  .brand-key span b { display: block; }
+  .brand-key .c-part { font-size: 1.1rem; }
+  .brand-key .atlys-part { font-size: 1.1rem; }
   .hero-tag .cursor {
     display: inline-block;
     width: .55em; height: 1.05em;
@@ -205,6 +223,72 @@
   }
   .pain-card .n { font-family: var(--mono); color: var(--ember); font-size: .85rem; margin-bottom: .4rem; }
   .pain-card p { margin: 0; font-size: .92rem; color: var(--muted); line-height: 1.45; }
+
+  /* ---- Question wall ---- */
+  .qwall {
+    display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 2.2rem; max-width: 980px;
+  }
+  .qchip {
+    font-family: var(--mono); font-size: .86rem; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    padding: .65rem 1.1rem; line-height: 1.3;
+  }
+  .qchip::before { content: "“"; color: var(--dim); }
+  .qchip::after { content: "”"; color: var(--dim); }
+
+  /* ---- Before / Now compare ---- */
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.6rem; margin-top: 2.4rem;
+    max-width: 1000px; align-items: stretch;
+  }
+  .compare-arrow {
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); color: var(--dim); font-size: 1.6rem;
+  }
+  .compare-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem;
+  }
+  .compare-card h4 {
+    font-family: var(--mono); margin: 0 0 1rem; font-size: 1rem;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .compare-card .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .compare-card.now { border-color: var(--yellow); }
+
+  /* ---- Demo slide ---- */
+  .demo-window {
+    margin-top: 2.2rem; max-width: 760px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .demo-bar {
+    display: flex; gap: .4rem; padding: .7rem .9rem; border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  .demo-bar span { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .demo-body { padding: 1.4rem 1.6rem; }
+  .demo-q {
+    font-family: var(--mono); font-size: .95rem; color: var(--text);
+    background: var(--panel-2); border-radius: 8px; padding: .8rem 1rem; max-width: 80%;
+  }
+  .demo-a {
+    font-family: var(--mono); font-size: .88rem; color: var(--muted);
+    border-left: 2px solid var(--teal); padding: .3rem 0 .3rem 1rem; margin-top: 1rem; line-height: 1.6;
+  }
+  .demo-steps { display: flex; flex-direction: column; gap: .7rem; margin-top: 2rem; max-width: 640px; }
+  .demo-steps li { list-style: none; font-size: .9rem; color: var(--muted); display: flex; gap: .8rem; align-items: baseline; }
+  .demo-steps li b { color: var(--yellow); font-family: var(--mono); }
+
+  /* ---- Wiki hub callout ---- */
+  .wiki-hub {
+    display: flex; gap: 1.6rem; margin-top: 1.8rem; max-width: 1000px;
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ember);
+    border-radius: 8px; padding: 1.3rem 1.6rem; flex-wrap: wrap;
+  }
+  .wiki-hub .wh-label {
+    font-family: var(--mono); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ember); flex: 0 0 auto; padding-top: .1rem;
+  }
+  .wiki-hub p { margin: 0; font-size: .9rem; color: var(--muted); line-height: 1.55; flex: 1 1 400px; }
 
   /* ---- Approach: 3-agent strip ---- */
   .agent-strip {
@@ -331,7 +415,7 @@
   .stretch-item p { margin: 0; font-size: .92rem; color: var(--muted); line-height: 1.5; }
 
   /* closing */
-  #s12 { align-items: flex-start; justify-content: center; }
+  #s11 { align-items: flex-start; justify-content: center; }
   .close-title {
     font-family: var(--mono); font-weight: 700;
     font-size: clamp(2.4rem, 6vw, 4.6rem); margin: 0;
@@ -388,6 +472,8 @@
     .agent-strip { grid-template-columns: 1fr; }
     .stack-grid { grid-template-columns: repeat(2, 1fr); }
     .flow-grid { grid-template-columns: 1fr; }
+    .compare-grid { grid-template-columns: 1fr; }
+    .compare-arrow { transform: rotate(90deg); padding: .4rem 0; }
     .stage-layout { flex-direction: column; }
     .navbtn { padding: .6rem .3rem; }
   }
@@ -401,104 +487,119 @@
   <!-- 1: TITLE -->
   <section class="slide" id="s1">
     <div class="title-mark">CLICK-A-THON 2026 · <b>ATLYS</b> TRACK</div>
-    <h1 class="hero-title">Self-correcting<br>analytics <span class="dim">agents</span><br>on ClickHouse.</h1>
-    <p class="hero-tag">Three agents. One verified context wiki. Zero blind trust in the base context.<span class="cursor"></span></p>
+    <h1 class="brand"><span class="c-part">C</span>·<span class="atlys-part">ATLYS</span><span class="t-part">T</span></h1>
+    <p class="hero-tag">Like a catalyst — it speeds up how fast a PM gets from question to answer.<span class="cursor"></span></p>
+    <div class="brand-key">
+      <span><b class="c-part">C</b>ClickHouse</span>
+      <span><b class="atlys-part">ATLYS</b>the company</span>
+      <span><b style="color:var(--text)">–LYST</b>the catalyst</span>
+    </div>
     <div class="hero-foot">
-      <span>ORCHESTRATOR.PY → INSTRUMENTATION → CONTEXT → ANALYSIS</span>
+      <span>ASK A QUESTION → GET A GROUNDED ANSWER</span>
       <span>TRACED WITH LANGFUSE</span>
     </div>
   </section>
 
-  <!-- 2: PROBLEM -->
+  <!-- 2: WHAT PMs ASK -->
   <section class="slide" id="s2">
-    <div class="eyebrow">The Problem</div>
-    <h2>The context layer you're handed<br>is not the context layer you can trust.</h2>
-    <blockquote class="quote-block">
-      "Fair warning: the base context layer you receive is not perfect.<br>Treat it with suspicion."
-      <cite>— the challenge brief, on base_context.md</cite>
-    </blockquote>
-    <div class="pain-row">
-      <div class="pain-card"><div class="n">01</div><p>PMs wait on manual dashboards for answers that should be self-serve.</p></div>
-      <div class="pain-card"><div class="n">02</div><p>New event data ships faster than anyone updates the docs describing it.</p></div>
-      <div class="pain-card"><div class="n">03</div><p>Agents that trust stale context produce confident, wrong analysis.</p></div>
+    <div class="eyebrow">Where We Start</div>
+    <h2>What a PM actually asks, all day.</h2>
+    <p class="lede">Not one clean question. A constant stream of them — about funnels, drop-offs, cohorts, one-off spikes.</p>
+    <div class="qwall">
+      <span class="qchip">Why did signups drop 12% last Tuesday?</span>
+      <span class="qchip">Which onboarding step loses the most users?</span>
+      <span class="qchip">Are power users from campaign X actually retaining?</span>
+      <span class="qchip">What's driving the spike in refunds this week?</span>
+      <span class="qchip">Does the new pricing page convert better on mobile?</span>
+      <span class="qchip">Which cohort should we prioritize for the next release?</span>
+      <span class="qchip">Is this event even being logged correctly?</span>
     </div>
   </section>
 
-  <!-- 3: APPROACH -->
+  <!-- 3: BEFORE vs NOW -->
   <section class="slide" id="s3">
-    <div class="eyebrow">Our Approach</div>
-    <h2>Three agents, one wiki they all read from —<br>and one of them corrects it first.</h2>
-    <p class="lede">Every agent orients from <b class="accent-teal">context/</b>, never re-derives schema or join-safety facts on its own. Instrumentation writes to it, Context maintains it, Analysis reads from it.</p>
+    <div class="eyebrow">Before → Now</div>
+    <h2>The question used to take days.<br>Now it takes a conversation.</h2>
+    <div class="compare-grid">
+      <div class="compare-card">
+        <h4><span class="dot" style="background:var(--dim)"></span> Before</h4>
+        <ul class="flow-steps">
+          <li>PM pings the data team on Slack</li>
+          <li>Data team hunts for the right table</li>
+          <li>Docs are stale, so they double-check with an engineer</li>
+          <li>A dashboard or SQL answer comes back — days later</li>
+          <li>New feature ships without tracking? Wait on the dev team to design and ship a new table before anyone can even ask about it</li>
+        </ul>
+      </div>
+      <div class="compare-arrow">→</div>
+      <div class="compare-card now">
+        <h4><span class="dot" style="background:var(--yellow)"></span> Now — with C·ATLYST</h4>
+        <ul class="flow-steps">
+          <li>PM asks the question directly, in plain language</li>
+          <li>C·ATLYST orients from a verified context wiki</li>
+          <li>No stale docs, no guessing at schema</li>
+          <li>A grounded answer comes back — same session</li>
+          <li>New feature to track? The Instrumentation Agent designs and applies the table itself — no dev queue to wait on</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4: SIMPLIFIED ARCHITECTURE -->
+  <section class="slide" id="s4">
+    <div class="eyebrow">How It Works</div>
+    <h2>One orchestrator, three agents,<br>one wiki they all trust.</h2>
+    <p class="lede"><span style="font-family:var(--mono)">orchestrator.py</span> chains every step below in order — no logic of its own beyond passing paths along. Nothing skips the wiki.</p>
+    <div class="pipeline">
+      <div class="pnode">spec.md<br><span class="small">+ events.ndjson</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--yellow)">Instrumentation<br><span class="small">designs + applies schema</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode">Loader<br><span class="small">creates + loads tables</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--ember)">Context · Pass 1<br><span class="small">publishes to the wiki</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode">Question Extractor<br><span class="small">parses PM questions from spec.md</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--teal)">Analysis <span class="small">× N</span><br><span class="small">concurrent, one per question</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode" style="border-color:var(--ember)">Context · Pass 2<br><span class="small">consolidates findings</span></div>
+      <div class="parrow">→</div>
+      <div class="pnode">Answer<br><span class="small">to the PM</span></div>
+      <div class="ploop">every step traced in Langfuse</div>
+    </div>
+    <div class="wiki-hub">
+      <div class="wh-label">The LLM Wiki</div>
+      <p><span style="font-family:var(--mono); color:var(--text)">context/</span> is the shared brain every agent reads before it does anything else. Instrumentation and Context write to it; Analysis only ever reads it — that split is what stops a stale schema assumption from quietly becoming a wrong answer.</p>
+    </div>
     <div class="agent-strip">
       <div class="agent-card" style="--c: var(--yellow)">
-        <div class="stage-no">STAGE 1</div>
+        <div class="stage-no">AGENT 1</div>
         <h3>Instrumentation Agent</h3>
         <p>Spec + NDJSON sample → designed schema, human-in-the-loop, applied to ClickHouse.</p>
       </div>
       <div class="agent-card" style="--c: var(--ember)">
-        <div class="stage-no">STAGE 2</div>
+        <div class="stage-no">AGENT 2</div>
         <h3>Context Agent</h3>
         <p>Keeps the wiki honest — tables, metrics, known issues, relationships. Runs twice per spec.</p>
       </div>
       <div class="agent-card" style="--c: var(--teal)">
-        <div class="stage-no">STAGE 3</div>
+        <div class="stage-no">AGENT 3</div>
         <h3>Analysis Agent</h3>
         <p>Answers PM questions from the verified wiki, concurrently, one run per question.</p>
       </div>
     </div>
   </section>
 
-  <!-- 4: STAGE 0 BOOTSTRAP -->
-  <section class="slide" id="s4">
-    <div class="eyebrow accent-yellow">Stage 0 · Runs before everything else</div>
-    <h2>Bootstrap: verify the base context<br>against what the data actually shows.</h2>
-    <p class="lede">A one-time run — repeated whenever new tables land — that uses the <b class="accent-yellow">ClickHouse MCP server</b> to check <span style="font-family:var(--mono)">base_context.md</span> against the real event tables, and produces a corrected context layer everything downstream builds on.</p>
-    <div class="bd-wrap bootstrap-diagram">
-      <div class="bd-node">base_context.md<br><span style="color:var(--dim)">(unverified)</span></div>
-      <div class="bd-arrow">＋</div>
-      <div class="bd-node hot">ClickHouse MCP<br>real event tables</div>
-      <div class="bd-arrow">→</div>
-      <div class="bd-node hot">corrected context/</div>
-      <div class="bd-arrow">→</div>
-      <div class="bd-node">Stage 1–3</div>
-    </div>
-  </section>
-
-  <!-- 5: FLOW 1 vs FLOW 2 -->
+  <!-- 5: INSTRUMENTATION AGENT DETAIL -->
   <section class="slide" id="s5">
-    <div class="eyebrow">Two Ways In</div>
-    <h2>A build-time pipeline, and a runtime ask.</h2>
-    <div class="flow-grid">
-      <div class="flow-card">
-        <h4><span class="dot" style="background:var(--yellow)"></span> Flow 1 — Instrument new data</h4>
-        <ul class="flow-steps">
-          <li>Upload spec.md + events.ndjson</li>
-          <li>Instrumentation Agent (human-in-the-loop)</li>
-          <li>Context Agent publishes schema + caveats</li>
-          <li>Analysis Agent answers the spec's PM questions</li>
-        </ul>
-      </div>
-      <div class="flow-card">
-        <h4><span class="dot" style="background:var(--teal)"></span> Flow 2 — Ask a question</h4>
-        <ul class="flow-steps">
-          <li>PM opens the app</li>
-          <li>Asks a question in plain language</li>
-          <li>Analysis Agent orients from the wiki</li>
-          <li>Gets a grounded response back</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <!-- 6: STAGE 1 DETAIL -->
-  <section class="slide" id="s6">
-    <div class="eyebrow" style="color:var(--yellow)">Stage 1</div>
+    <div class="eyebrow" style="color:var(--yellow)">Agent 1</div>
     <h2>Instrumentation Agent</h2>
     <div class="stage-layout">
       <div class="stage-left">
         <ol class="step-num-list" style="--c: var(--yellow)">
           <li>Read the context layer — understand entities and existing conventions first</li>
-          <li>Load ClickHouse schema-design skills/tooling</li>
+          <li>Load ClickHouse best-practices skills — the same rules that keep schema and query design efficient, applied automatically, not from memory</li>
           <li>Design + apply the schema from spec + raw NDJSON (human-in-the-loop)</li>
           <li>Verify the table was created and data inserted correctly</li>
           <li>Record the change as a durable, reviewable file</li>
@@ -511,14 +612,15 @@
           <div class="file-item"><span class="dot" style="--c:var(--yellow)">●</span> profile.md</div>
           <div class="file-item"><span class="dot" style="--c:var(--yellow)">●</span> load_report.md</div>
         </div>
+        <p class="lede" style="margin-top:1.2rem; font-size:.88rem">Result: tables designed with the right ordering keys, types, and partitioning from day one — not a schema someone has to fix later.</p>
       </div>
     </div>
   </section>
 
-  <!-- 7: STAGE 2 DETAIL -->
-  <section class="slide" id="s7">
-    <div class="eyebrow" style="color:var(--ember)">Stage 2</div>
-    <h2>Context Agent — the wiki</h2>
+  <!-- 6: CONTEXT AGENT — WIKI + BOOTSTRAP (niche things, same page) -->
+  <section class="slide" id="s6">
+    <div class="eyebrow" style="color:var(--ember)">Agent 2</div>
+    <h2>Context Agent — the wiki,<br>bootstrapped from real data.</h2>
     <div class="stage-layout">
       <div class="stage-left">
         <div class="tree">context/<br>
@@ -529,17 +631,19 @@
 ├── <span class="dir">known-issues/</span> <span class="comment">— quirks, broken joins</span><br>
 └── relationship.md <span class="comment">— join map</span>
         </div>
+        <p class="lede" style="margin-top:1rem; font-size:.88rem">One file per concern — diffs stay readable, agents update a single page instead of rewriting everything.</p>
       </div>
       <div class="stage-right">
-        <p class="lede" style="margin-top:0">One file per concern, not one giant doc — diffs stay readable, agents update a single page instead of rewriting everything.</p>
-        <p class="lede"><b class="accent-ember">Runs twice per spec:</b> Pass 1 publishes new schema/known-issues <i>before</i> Analysis runs, so it has facts to orient from. Pass 2 consolidates every finding after Analysis finishes — the single writer, so nothing races.</p>
+        <div class="tag" style="color:var(--yellow); border-color:var(--yellow); margin-bottom:.9rem">Bootstrap · runs before everything else</div>
+        <p class="lede" style="margin-top:0">The base context we're handed isn't trusted blindly. A one-time pass — repeated whenever new tables land — uses the <b class="accent-yellow">ClickHouse MCP server</b> to check it against the real event tables, before the wiki is built.</p>
+        <p class="lede"><b class="accent-ember">Runs twice per spec:</b> Pass 1 publishes new schema/known-issues before Analysis runs. Pass 2 consolidates every finding after — one single writer, so nothing races.</p>
       </div>
     </div>
   </section>
 
-  <!-- 8: STAGE 3 DETAIL -->
-  <section class="slide" id="s8">
-    <div class="eyebrow" style="color:var(--teal)">Stage 3</div>
+  <!-- 7: ANALYSIS AGENT DETAIL -->
+  <section class="slide" id="s7">
+    <div class="eyebrow" style="color:var(--teal)">Agent 3</div>
     <h2>Analysis Agent</h2>
     <div class="stage-layout">
       <div class="stage-left">
@@ -561,28 +665,8 @@
     </div>
   </section>
 
-  <!-- 9: FULL PIPELINE -->
-  <section class="slide" id="s9">
-    <div class="eyebrow">End to End</div>
-    <h2>What orchestrator.py actually runs</h2>
-    <div class="pipeline">
-      <div class="pnode">spec.md<br><span class="small">events.ndjson</span></div>
-      <div class="parrow">→</div>
-      <div class="pnode" style="border-color:var(--yellow)">Instrumentation<br><span class="small">ddl · justification · profile</span></div>
-      <div class="parrow">→</div>
-      <div class="pnode">Loader<br><span class="small">creates + loads tables</span></div>
-      <div class="parrow">→</div>
-      <div class="pnode" style="border-color:var(--ember)">Context<br><span class="small">pass 1</span></div>
-      <div class="parrow">→</div>
-      <div class="pnode" style="border-color:var(--teal)">Analysis<br><span class="small">× N questions, concurrent</span></div>
-      <div class="parrow">→</div>
-      <div class="pnode" style="border-color:var(--ember)">Context<br><span class="small">pass 2, consolidate</span></div>
-      <div class="ploop">every step traced in Langfuse</div>
-    </div>
-  </section>
-
-  <!-- 10: TECH STACK -->
-  <section class="slide" id="s10">
+  <!-- 8: TECH STACK -->
+  <section class="slide" id="s8">
     <div class="eyebrow">Under the Hood</div>
     <h2>Tech stack</h2>
     <div class="stack-grid">
@@ -597,8 +681,26 @@
     </div>
   </section>
 
-  <!-- 11: STRETCH -->
-  <section class="slide" id="s11">
+  <!-- 9: DEMO -->
+  <section class="slide" id="s9">
+    <div class="eyebrow">Live Demo</div>
+    <h2>Ask C·ATLYST a question.</h2>
+    <div class="demo-window">
+      <div class="demo-bar"><span></span><span></span><span></span></div>
+      <div class="demo-body">
+        <div class="demo-q">Why did signups drop 12% last Tuesday?</div>
+        <div class="demo-a">Orienting from context/known-issues/signup_events.md and context/tables/signups.md …<br>Found a 40% dip in the mobile funnel between 2–4pm, tied to a known tracking gap on the retry step.</div>
+      </div>
+    </div>
+    <ol class="demo-steps">
+      <li><b>01</b> Upload a spec + sample events</li>
+      <li><b>02</b> Watch Instrumentation and Context agents run, live in Langfuse</li>
+      <li><b>03</b> Ask a real PM question in the app and get a grounded answer back</li>
+    </ol>
+  </section>
+
+  <!-- 10: STRETCH -->
+  <section class="slide" id="s10">
     <div class="eyebrow">If Time Permits</div>
     <h2>Where this goes next</h2>
     <div class="stretch-row">
@@ -610,18 +712,22 @@
         <span class="tag" style="color:var(--teal); border-color:var(--teal)">Agent-to-agent</span>
         <p>Direct agent-to-agent communication instead of file handoffs — visible end-to-end in Langfuse traces.</p>
       </div>
+      <div class="stretch-item">
+        <span class="tag" style="color:var(--ember); border-color:var(--ember)">Clarifying interview</span>
+        <p>Specs aren't always well-defined. Instead of guessing, the Instrumentation Agent asks the PM a short round of follow-up questions first — pulling out the detail a vague spec left out before any schema gets designed.</p>
+      </div>
     </div>
   </section>
 
-  <!-- 12: CLOSING -->
-  <section class="slide" id="s12">
+  <!-- 11: CLOSING -->
+  <section class="slide" id="s11">
     <div class="eyebrow">Thank You</div>
-    <h1 class="close-title">Context you can<br><span class="accent-yellow">trust</span>, not just <span class="accent-ember">read</span>.</h1>
-    <p class="close-sub">A bootstrap that corrects the record, three agents that build on it, and a wiki that never falls behind the data.</p>
+    <h1 class="close-title">The <span class="accent-yellow">catalyst</span> for<br>faster PM answers.</h1>
+    <p class="close-sub">C·ATLYST — ClickHouse and Atlys, working together so a question turns into a grounded answer, not a Slack thread.</p>
     <div class="close-links">
       <span>TEAM <b>ATLYS</b></span>
       <span>CLICK-A-THON 2026</span>
-      <span>ORCHESTRATOR.PY</span>
+      <span>C·ATLYST</span>
     </div>
   </section>
 
