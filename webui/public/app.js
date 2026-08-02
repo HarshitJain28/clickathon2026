@@ -1,0 +1,679 @@
+"use strict";
+
+/**
+ * Atlys Analytics — client-side app logic.
+ *
+ * Two views, toggled via state.view:
+ *   "chat"     — ChatGPT-style thread. Each question starts a job via
+ *                /api/analysis/start (-> analysis_agent.py), streams that
+ *                agent's live progress over SSE into a step feed, then
+ *                swaps in the finished markdown/HTML answer.
+ *   "onboard"  — upload spec.md + events.ndjson, POST to
+ *                /api/onboard/start (-> orchestrator.py), track its five
+ *                pipeline stages live via SSE, then render the resulting
+ *                analysis outputs.
+ *
+ * Chat state (chats, their messages, which one is active) is persisted to
+ * localStorage on every change and reloaded on boot, so a page refresh
+ * doesn't lose history — it's still per-browser, not synced anywhere.
+ */
+
+const DEFAULT_CHAT_TITLE = "Test";
+const STORAGE_KEY = "atlys_analytics_chat_state_v1";
+
+const state = {
+  chats: {}, // id -> { id, title, messages: [{role, content, html, error}] }
+  chatOrder: [], // insertion order, oldest first
+  activeChatId: null,
+  view: "chat",
+};
+
+function uid() {
+  return Math.random().toString(16).slice(2, 10);
+}
+
+/** Persists chats/chatOrder/activeChatId. Safe to call often — a full
+ * report page can be large, so a quota error here is caught and logged
+ * rather than allowed to break the app; the session just won't survive a
+ * refresh in that case. */
+function saveChatState() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        chats: state.chats,
+        chatOrder: state.chatOrder,
+        activeChatId: state.activeChatId,
+      })
+    );
+  } catch (err) {
+    console.warn("Could not persist chat history:", err.message);
+  }
+}
+
+/** Returns true if a valid saved session was restored into `state`. */
+function loadChatState() {
+  let raw;
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn("Could not read persisted chat history:", err.message);
+    return false;
+  }
+  if (!raw) return false;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.chats !== "object" || !Array.isArray(parsed.chatOrder)) {
+      return false;
+    }
+    const chatOrder = parsed.chatOrder.filter((id) => parsed.chats[id]);
+    if (!chatOrder.length) return false;
+
+    state.chats = parsed.chats;
+    state.chatOrder = chatOrder;
+    state.activeChatId =
+      parsed.activeChatId && state.chats[parsed.activeChatId]
+        ? parsed.activeChatId
+        : chatOrder[chatOrder.length - 1];
+    return true;
+  } catch (err) {
+    console.warn("Ignoring corrupt persisted chat history:", err.message);
+    return false;
+  }
+}
+
+function createChat() {
+  const id = uid();
+  state.chats[id] = { id, title: DEFAULT_CHAT_TITLE, messages: [] };
+  state.chatOrder.push(id);
+  state.activeChatId = id;
+  saveChatState();
+  return id;
+}
+
+function activeChat() {
+  return state.chats[state.activeChatId];
+}
+
+function chatTitleFromQuestion(question) {
+  const q = question.trim().replace(/\s+/g, " ");
+  return q.length <= 48 ? q : q.slice(0, 45).trimEnd() + "…";
+}
+
+// ----------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------
+
+function renderAll() {
+  renderChatList();
+  document.getElementById("chatView").style.display =
+    state.view === "chat" ? "" : "none";
+  document.getElementById("onboardView").style.display =
+    state.view === "onboard" ? "" : "none";
+  document.getElementById("chatInputBar").style.display =
+    state.view === "chat" ? "" : "none";
+  if (state.view === "chat") renderMessages();
+  saveChatState();
+}
+
+function renderChatList() {
+  const list = document.getElementById("chatList");
+  list.innerHTML = "";
+  for (let i = state.chatOrder.length - 1; i >= 0; i -= 1) {
+    const chat = state.chats[state.chatOrder[i]];
+    if (!chat) continue;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chat-row" + (chat.id === state.activeChatId ? " active" : "");
+    btn.textContent = chat.title;
+    btn.title = chat.title;
+    btn.addEventListener("click", () => {
+      state.activeChatId = chat.id;
+      state.view = "chat";
+      renderAll();
+    });
+    list.appendChild(btn);
+  }
+}
+
+function reportBlock(html) {
+  const details = document.createElement("details");
+  details.open = true;
+  const summary = document.createElement("summary");
+  summary.textContent = "📊 Full report";
+  const iframe = document.createElement("iframe");
+  iframe.className = "report-frame";
+  iframe.setAttribute("sandbox", "allow-scripts");
+  iframe.srcdoc = html;
+  details.appendChild(summary);
+  details.appendChild(iframe);
+  return details;
+}
+
+function renderMessageEl(msg) {
+  const row = document.createElement("div");
+  row.className = "message " + msg.role;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = msg.role === "user" ? "🧑" : "🤖";
+
+  const content = document.createElement("div");
+  content.className = "content" + (msg.error ? " error-content" : "");
+  content.innerHTML = renderMarkdown(msg.content);
+
+  if (msg.html) {
+    content.appendChild(reportBlock(msg.html));
+  }
+
+  // Full traceback stays available for debugging, but collapsed by default
+  // so it never buries the readable summary above it.
+  if (msg.rawLog) {
+    const details = document.createElement("details");
+    details.className = "raw-log-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Show full log";
+    const pre = document.createElement("pre");
+    pre.className = "log-box";
+    pre.textContent = msg.rawLog;
+    details.appendChild(summary);
+    details.appendChild(pre);
+    content.appendChild(details);
+  }
+
+  row.appendChild(avatar);
+  row.appendChild(content);
+  return row;
+}
+
+function renderMessages() {
+  const chat = activeChat();
+  const hero = document.getElementById("hero");
+  const container = document.getElementById("messages");
+  container.innerHTML = "";
+
+  hero.style.display = chat.messages.length === 0 ? "" : "none";
+
+  for (const msg of chat.messages) {
+    container.appendChild(renderMessageEl(msg));
+  }
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+// ----------------------------------------------------------------------
+// Chat: sending a question
+// ----------------------------------------------------------------------
+
+/** The markdown analysis_agent.py writes is "## Question\n...\n\n##
+ * Answer\n...", meant to stand alone as a file. In a chat thread the
+ * question is already visible as its own bubble, so only the Answer
+ * section is shown here — otherwise every reply would redundantly repeat
+ * the question back as a big heading. */
+function extractAnswerSection(markdown) {
+  const match = markdown.match(/##\s*Answer\s*\n([\s\S]*)/i);
+  return match ? match[1].trim() : markdown.trim();
+}
+
+function buildPendingAssistantRow() {
+  const row = document.createElement("div");
+  row.className = "message assistant";
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "🤖";
+
+  const content = document.createElement("div");
+  content.className = "content";
+
+  const header = document.createElement("div");
+  header.className = "pending-header";
+  header.innerHTML = '<span class="pending-dot"></span> Analyzing your question…';
+
+  const stepList = document.createElement("div");
+  stepList.className = "step-list";
+
+  const rawDetails = document.createElement("details");
+  rawDetails.className = "raw-log-details";
+  const rawSummary = document.createElement("summary");
+  rawSummary.textContent = "Show raw log";
+  const rawPre = document.createElement("pre");
+  rawPre.className = "log-box";
+  rawDetails.appendChild(rawSummary);
+  rawDetails.appendChild(rawPre);
+
+  content.appendChild(header);
+  content.appendChild(stepList);
+  content.appendChild(rawDetails);
+  row.appendChild(avatar);
+  row.appendChild(content);
+
+  return { row, feed: new StepFeed({ listEl: stepList, rawEl: rawPre }) };
+}
+
+/** Records the finished message in chat state, and swaps the imperative
+ * "live" bubble for the standard rendered one so later full re-renders
+ * (switching chats and back, etc.) reproduce it identically. */
+function finalizeAssistantMessage(chat, pendingRow, message) {
+  chat.messages.push(message);
+  saveChatState();
+
+  // If the user switched chats mid-request, the live bubble was already
+  // discarded by a re-render — replaceWith on a detached node would
+  // silently drop the answer, so fall back to a full re-render instead.
+  if (pendingRow.isConnected) {
+    pendingRow.replaceWith(renderMessageEl(message));
+  } else if (chat.id === state.activeChatId) {
+    renderMessages();
+  }
+
+  if (chat.id === state.activeChatId) {
+    window.scrollTo(0, document.body.scrollHeight);
+  }
+}
+
+async function sendPrompt(question) {
+  const chat = activeChat();
+  chat.messages.push({ role: "user", content: question });
+  if (chat.title === DEFAULT_CHAT_TITLE) {
+    chat.title = chatTitleFromQuestion(question);
+  }
+  renderAll();
+
+  const promptInput = document.getElementById("promptInput");
+  const sendBtn = document.getElementById("sendBtn");
+  promptInput.disabled = true;
+  sendBtn.disabled = true;
+
+  const index = chat.messages.filter((m) => m.role === "user").length;
+
+  const container = document.getElementById("messages");
+  const { row, feed } = buildPendingAssistantRow();
+  container.appendChild(row);
+  window.scrollTo(0, document.body.scrollHeight);
+
+  const releaseInput = () => {
+    promptInput.disabled = false;
+    sendBtn.disabled = false;
+    promptInput.focus();
+  };
+
+  let jobId;
+  try {
+    const startRes = await fetch("/api/analysis/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, chatId: chat.id, index }),
+    });
+    const startData = await startRes.json();
+    if (startData.error) throw new Error(startData.error);
+    jobId = startData.jobId;
+  } catch (err) {
+    finalizeAssistantMessage(chat, row, {
+      role: "assistant",
+      content: "⚠️ Request failed: " + err.message,
+      error: true,
+    });
+    releaseInput();
+    return;
+  }
+
+  let settled = false;
+  const es = new EventSource(`/api/analysis/stream/${jobId}`);
+
+  es.onmessage = (e) => {
+    feed.push(JSON.parse(e.data));
+    window.scrollTo(0, document.body.scrollHeight);
+  };
+
+  es.addEventListener("done", async () => {
+    settled = true;
+    es.close();
+
+    let finalMsg;
+    try {
+      const resultsRes = await fetch(`/api/analysis/results/${jobId}`);
+      const data = await resultsRes.json();
+      if (data.error) {
+        feed.finish(false);
+        finalMsg = {
+          role: "assistant",
+          content:
+            "⚠️ **The Analysis Agent couldn't answer this question.**\n\n```\n" +
+            data.error +
+            "\n```",
+          error: true,
+          rawLog: data.rawLog || null,
+        };
+      } else {
+        feed.finish(true);
+        finalMsg = {
+          role: "assistant",
+          content: extractAnswerSection(data.markdown),
+          html: data.html || null,
+        };
+      }
+    } catch (err) {
+      feed.finish(false);
+      finalMsg = {
+        role: "assistant",
+        content: "⚠️ Request failed: " + err.message,
+        error: true,
+      };
+    }
+
+    finalizeAssistantMessage(chat, row, finalMsg);
+    releaseInput();
+  });
+
+  es.onerror = () => {
+    if (settled) return; // server closes the stream normally on completion
+    settled = true;
+    es.close();
+    feed.finish(false);
+    finalizeAssistantMessage(chat, row, {
+      role: "assistant",
+      content: "⚠️ Lost connection to the Analysis Agent.",
+      error: true,
+    });
+    releaseInput();
+  };
+}
+
+// ----------------------------------------------------------------------
+// Onboard spec
+// ----------------------------------------------------------------------
+
+function renderOnboardResults(results) {
+  const resultsEl = document.getElementById("onboardResults");
+  resultsEl.innerHTML = "";
+
+  if (!results.length) {
+    resultsEl.textContent =
+      "The pipeline ran, but no PM questions were found to answer.";
+    return;
+  }
+
+  const heading = document.createElement("h4");
+  heading.textContent = "Results";
+  resultsEl.appendChild(heading);
+
+  for (const r of results) {
+    const box = document.createElement("div");
+    box.className = "result-box";
+    box.innerHTML = renderMarkdown(r.markdown);
+    if (r.html) {
+      box.appendChild(reportBlock(r.html));
+    }
+    resultsEl.appendChild(box);
+    resultsEl.appendChild(document.createElement("hr"));
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Wires a styled drag-and-drop zone around a hidden native <input
+ * type="file">, keeping the input as the single source of truth (so
+ * existing `input.files` reads elsewhere keep working unchanged). */
+function initDropzone(dropzoneId, onChange) {
+  const dropzone = document.getElementById(dropzoneId);
+  const input = dropzone.querySelector(".dropzone-input");
+  const emptyEl = dropzone.querySelector(".dropzone-empty");
+  const fileEl = dropzone.querySelector(".dropzone-file");
+  const fileNameEl = dropzone.querySelector(".dropzone-file-name");
+  const removeBtn = dropzone.querySelector(".dropzone-remove");
+
+  const update = () => {
+    const file = input.files[0];
+    if (file) {
+      emptyEl.style.display = "none";
+      fileEl.style.display = "flex";
+      fileNameEl.textContent = `${file.name} — ${formatBytes(file.size)}`;
+    } else {
+      emptyEl.style.display = "flex";
+      fileEl.style.display = "none";
+    }
+    onChange();
+  };
+
+  input.addEventListener("change", update);
+
+  removeBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    input.value = "";
+    update();
+  });
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    })
+  );
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      update();
+    }
+  });
+}
+
+function initOnboardForm() {
+  const formSection = document.getElementById("onboardFormSection");
+  const collapsedBar = document.getElementById("onboardCollapsedBar");
+  const collapsedLabel = document.getElementById("onboardCollapsedLabel");
+  const onboardAnotherBtn = document.getElementById("onboardAnotherBtn");
+
+  const specNameInput = document.getElementById("specNameInput");
+  const specMdInput = document.getElementById("specMdInput");
+  const eventsInput = document.getElementById("eventsInput");
+  const runBtn = document.getElementById("runOrchestratorBtn");
+  const statusEl = document.getElementById("onboardStatus");
+  const pipelineEl = document.getElementById("onboardPipeline");
+  const stepListEl = document.getElementById("onboardStepList");
+  const rawDetailsEl = document.getElementById("onboardRawDetails");
+  const rawLogEl = document.getElementById("onboardRawLog");
+  const resultsEl = document.getElementById("onboardResults");
+
+  const updateRunButtonState = () => {
+    runBtn.disabled = !(
+      specNameInput.value.trim() &&
+      specMdInput.files.length &&
+      eventsInput.files.length
+    );
+  };
+  specNameInput.addEventListener("input", updateRunButtonState);
+  initDropzone("specMdDropzone", updateRunButtonState);
+  initDropzone("eventsDropzone", updateRunButtonState);
+
+  /** Clears everything and shows the upload form again, ready for a fresh
+   * spec. Only reachable once a prior run has fully settled (see the
+   * "done" handler below), so it can never race a still-running job. */
+  onboardAnotherBtn.addEventListener("click", () => {
+    formSection.style.display = "";
+    collapsedBar.style.display = "none";
+    onboardAnotherBtn.style.display = "none";
+
+    specNameInput.value = "";
+    specMdInput.value = "";
+    eventsInput.value = "";
+    document.querySelectorAll(".dropzone").forEach((dz) => {
+      dz.querySelector(".dropzone-empty").style.display = "flex";
+      dz.querySelector(".dropzone-file").style.display = "none";
+    });
+
+    statusEl.textContent = "";
+    pipelineEl.style.display = "none";
+    pipelineEl.innerHTML = "";
+    stepListEl.style.display = "none";
+    stepListEl.innerHTML = "";
+    rawDetailsEl.style.display = "none";
+    rawLogEl.textContent = "";
+    resultsEl.innerHTML = "";
+    updateRunButtonState();
+  });
+
+  runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true;
+    statusEl.textContent = "";
+    pipelineEl.style.display = "";
+    pipelineEl.innerHTML = "";
+    stepListEl.style.display = "";
+    stepListEl.innerHTML = "";
+    rawDetailsEl.style.display = "";
+    rawLogEl.textContent = "";
+    resultsEl.innerHTML = "";
+
+    const form = new FormData();
+    form.append("specName", specNameInput.value.trim());
+    form.append("specMd", specMdInput.files[0]);
+    form.append("eventsNdjson", eventsInput.files[0]);
+
+    let jobId, specSlug;
+    try {
+      const res = await fetch("/api/onboard/start", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.error) {
+        statusEl.textContent = "⚠️ " + data.error;
+        updateRunButtonState();
+        return;
+      }
+      jobId = data.jobId;
+      specSlug = data.specSlug;
+    } catch (err) {
+      statusEl.textContent = "⚠️ Request failed: " + err.message;
+      updateRunButtonState();
+      return;
+    }
+
+    // Collapse the upload form now that a run is actually in flight, so the
+    // pipeline/results below have the room instead of sitting under a form
+    // that's no longer actionable.
+    formSection.style.display = "none";
+    collapsedBar.style.display = "flex";
+    collapsedLabel.textContent = `📤 ${specSlug}`;
+    onboardAnotherBtn.style.display = "none";
+
+    statusEl.textContent = `Onboarding ${specSlug} — this can take several minutes.`;
+    const pipeline = new PipelineTracker(pipelineEl);
+    const feed = new StepFeed({ listEl: stepListEl, rawEl: rawLogEl });
+
+    let settled = false;
+    const es = new EventSource(`/api/onboard/stream/${jobId}`);
+
+    es.onmessage = (e) => {
+      const line = JSON.parse(e.data);
+      // A stage marker advances the pipeline tracker; anything else is a
+      // detail line for the step feed. Both still land in the raw log.
+      if (pipeline.push(line)) {
+        if (rawLogEl) {
+          rawLogEl.textContent += (rawLogEl.textContent ? "\n" : "") + line;
+        }
+        // A new stage starting resets the detail feed, so the visible steps
+        // always belong to the stage currently running.
+        stepListEl.innerHTML = "";
+        feed.steps = [];
+        return;
+      }
+      feed.push(line);
+    };
+
+    es.addEventListener("done", async (e) => {
+      settled = true;
+      const { code } = JSON.parse(e.data);
+      es.close();
+      pipeline.finish(code === 0);
+      feed.finish(code === 0);
+
+      if (code === 0) {
+        statusEl.textContent = `✅ Spec ${specSlug} onboarded successfully.`;
+        try {
+          const resultsRes = await fetch(`/api/onboard/results/${jobId}`);
+          const resultsData = await resultsRes.json();
+          renderOnboardResults(resultsData.results || []);
+        } catch (err) {
+          statusEl.textContent += ` (couldn't load results: ${err.message})`;
+        }
+      } else {
+        statusEl.textContent = `⚠️ The pipeline failed (exit code ${code}). See the log below.`;
+      }
+      onboardAnotherBtn.style.display = "";
+      updateRunButtonState();
+    });
+
+    es.onerror = () => {
+      if (settled) return; // server closes the stream normally on completion
+      settled = true;
+      es.close();
+      pipeline.finish(false);
+      feed.finish(false);
+      statusEl.textContent = "⚠️ Lost connection to the orchestrator.";
+      onboardAnotherBtn.style.display = "";
+      updateRunButtonState();
+    };
+  });
+}
+
+// ----------------------------------------------------------------------
+// Boot
+// ----------------------------------------------------------------------
+
+function initChatInput() {
+  const promptInput = document.getElementById("promptInput");
+  const sendBtn = document.getElementById("sendBtn");
+
+  const autosize = () => {
+    promptInput.style.height = "auto";
+    promptInput.style.height = Math.min(promptInput.scrollHeight, 160) + "px";
+  };
+
+  const submit = () => {
+    const text = promptInput.value.trim();
+    if (!text) return;
+    promptInput.value = "";
+    autosize();
+    sendPrompt(text);
+  };
+
+  sendBtn.addEventListener("click", submit);
+  promptInput.addEventListener("input", autosize);
+  promptInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  });
+}
+
+document.getElementById("newChatBtn").addEventListener("click", () => {
+  createChat();
+  state.view = "chat";
+  renderAll();
+});
+document.getElementById("onboardBtn").addEventListener("click", () => {
+  state.view = "onboard";
+  renderAll();
+});
+document.getElementById("backToChatBtn").addEventListener("click", () => {
+  state.view = "chat";
+  renderAll();
+});
+
+initChatInput();
+initOnboardForm();
+if (!loadChatState()) {
+  createChat();
+}
+renderAll();

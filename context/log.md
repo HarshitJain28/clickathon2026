@@ -13,6 +13,111 @@ links: [doc.index, doc.known_issues]
 Append-only, newest first. Every entry names the evidence behind the change.
 Git history is the authoritative diff; this is the readable summary.
 
+## 2026-08-02 — Spec 03 (Visa Status Sharing) analysis consolidated
+
+Consolidated 4 PM-question answers (`out/03_status_sharing/analysis/q01.md`–
+`q04.md`) into the wiki — no new tables or `ALTER`s this pass, only
+knowledge updates. All 5 table pages
+([share_clicked](tables/share_clicked.md),
+[channel_selected](tables/channel_selected.md),
+[link_generated](tables/link_generated.md),
+[link_opened](tables/link_opened.md),
+[recipient_cta_clicked](tables/recipient_cta_clicked.md)) updated;
+[relationship.md](relationship.md) → "Share"; [known_issues.md](known_issues.md)
+D1, D2, D3; two new metric pages.
+
+**Headline findings, by question:**
+- **q01** (share rate by `status_shared`): share-flow completion is **71.5%**
+  overall (1,144/1,600), verified by set-membership join on `share_id` (not
+  row-count ratio) — and essentially flat across status (70.11%–73.33%, no
+  monotonic pattern, `processing` highest not `approved`). **No, approvals
+  are not shared/completed more.** Also confirms `channel_selected` and
+  `link_generated` hold the exact same 1,144 `share_id`s — the 1:1 pairing
+  flagged at instrumentation time is now confirmed. New page:
+  [metrics/share_completion_rate.md](metrics/share_completion_rate.md).
+- **q02** (channel mix / new-user opens): WhatsApp dominates both channel
+  selection (54.63%) and new-user opens (61.51% new-user rate, 56.3% of all
+  new-user opens) — wins on efficiency, not just volume.
+- **q03** (recipient K-factor): verifies `recipient_cta_clicked.share_id ⊆
+  link_opened.share_id` **100%** by set membership — closes one of the two
+  open D1 join edges for this spec (the other, sharer-side ↔ recipient-side,
+  remains open). Surfaces a **new data-quality finding**:
+  `recipient_is_new_user` is not stable per `share_id` — 472/922 shares
+  (51.2%) show conflicting values across reopens, the same self-contradicting
+  shape as D3's `is_crossed_failed_attempt_threshold` (added as a D3
+  addendum). Segmenting to internally-consistent shares gives a K-factor of
+  **38.13%** (pure new-user) vs. **0.00%** (pure existing-user). New page:
+  [metrics/recipient_conversion_k_factor.md](metrics/recipient_conversion_k_factor.md).
+- **q04** (destination spread): two correct answers depending on definition
+  — **AU** leads raw reach (223 opens), **AE** leads conversion efficiency
+  (16.37% opens→CTA rate, vs. AU's 10.76%).
+
+**Key risks carried forward, updated:**
+- **D1** — 2 of 3 `share_id` join edges now verified (sharer-side internal:
+  `q01.md`; recipient-side internal: `q03.md`); the sharer-side ↔
+  recipient-side edge itself is still unverified — open work.
+- **D2** — the 0% `application_id` overlap (`load_report.md`) is now
+  independently re-confirmed by all 4 analysis questions, none of which
+  found a working path back to `application_started` — same pattern as
+  specs 01 and 02.
+- **D3** — extended (not replaced) to cover `recipient_is_new_user`'s
+  self-contradiction, a new instance of the same flag-integrity trap on a
+  different table/column.
+
+**Evidence:** `out/03_status_sharing/analysis/q01.md`–`q04.md` (all 4 read
+before writing, per SCHEMA.md's consolidation practice), cross-checked
+against `out/03_status_sharing/load_report.md` and `justification.md` for
+consistency. No open caveat resolved by this pass: the sharer-side ↔
+recipient-side `share_id` join remains unverified — flagged in D1,
+`relationship.md`, and every affected table page for the next Analysis
+Agent pass.
+
+## 2026-08-02 — Spec 03 (Visa Status Sharing) instrumented
+
+Five new `CREATE TABLE` statements, no `ALTER`s, no materialized view (6,503
+total rows — too small to warrant pre-aggregation). New `Share` entity
+(`share_id`, `FixedString(32)`, spec-local, mirroring `group_id`'s
+precedent). New pages: [share_clicked](tables/share_clicked.md) (1,600
+rows), [channel_selected](tables/channel_selected.md) (1,144),
+[link_generated](tables/link_generated.md) (1,144, byte-for-byte identical
+column set to `channel_selected` — flagged as a possible 1:1 pairing, not
+resolved), [link_opened](tables/link_opened.md) (2,310, recipient-side, no
+`user_id`), [recipient_cta_clicked](tables/recipient_cta_clicked.md) (305,
+recipient-side, the spec's K-factor numerator). All 5 follow D8 (no
+new table leads its sort key with a random `id`), each substituting its own
+leading discriminator (`status_shared`/`channel`/`destination`) per
+`justification.md`.
+
+**Key risks carried forward:**
+- **D2** — `application_id` normalized and D2-verified on the 3 sharer-side
+  tables (`share_clicked`/`channel_selected`/`link_generated`):
+  **`overlap_pct = 0.0%`** on all 3 against `application_started` → **STOP**,
+  analyse standalone (`out/03_status_sharing/load_report.md`, 2026-08-02) —
+  the same verdict specs 01 and 02 got, now confirmed a fourth time. The 2
+  recipient-side tables carry no `application_id` at all.
+- **D1** — the sharer-side ↔ recipient-side `share_id` join and every
+  step-through figure in this spec (share → channel select → link generate
+  → open → recipient CTA) are **unverified row-count ratios only** — no
+  set-membership check has run.
+- **`analysis/` does not exist yet for this spec** — question_extractor.py
+  and the Analysis Agent have not run for spec 03. No PM questions were
+  answered this pass; nothing to consolidate from `analysis/qNN.md` files.
+  Next Analysis Agent pass should prioritize: (1) set-membership verifying
+  the `share_id` join between sharer- and recipient-side tables, (2)
+  checking whether `channel_selected`/`link_generated` are truly a 1:1
+  pairing, (3) computing the K-factor from `recipient_cta_clicked`, (4) the
+  `status_shared` vs. share-rate cut the PM's Q1 asks for.
+
+**Also updated:** `tables/index.md` (5 new rows, total rows 2,491,441 →
+**2,497,944**, 17 → **22** tables), `context/index.md` (same rollup),
+`relationship.md` (new "Share" entity section, `share_id` join-map entry,
+"Entities the incoming specs will add" bullet marked instrumented),
+`known_issues.md` (D2 verdicts table + narrative addendum for spec 03).
+
+**Evidence:** `out/03_status_sharing/ddl.sql`,
+`out/03_status_sharing/justification.md`, `out/03_status_sharing/profile.md`,
+`out/03_status_sharing/load_report.md`.
+
 ## 2026-08-02 — Spec 02 (Group / Family) analysis consolidated
 
 Four `analysis/qNN.md` files from the Analysis Agent

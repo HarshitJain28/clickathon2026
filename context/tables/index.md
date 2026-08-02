@@ -3,18 +3,19 @@ id: tables.index
 kind: index
 status: verified
 confidence: high
-source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size
+source: clickathon DB — system.tables, system.columns, profiling queries on the 8 baseline tables; out/01_express_checkout/load_report.md — rows loaded for the 5 Express Checkout tables; out/01_express_checkout/analysis/q01.md, q02.md, q04.md — verified set-membership step-through for 2 of the 3 transitions; out/02_group_family/load_report.md — rows loaded and D2 overlap_pct for the 4 Group/Family tables; out/02_group_family/analysis/q01.md, q03.md — verified set-membership step-through by group_size; out/03_status_sharing/load_report.md — rows loaded and D2 overlap_pct for 3 of the 5 Status Sharing tables; out/03_status_sharing/analysis/q01.md–q04.md — verified share-flow step-through, channel mix, K-factor, destination spread
 last_verified: 2026-08-02
 links: [doc.index, doc.relationship, doc.known_issues]
 ---
 
 # Tables
 
-Seventeen event tables in `clickathon`: 8 baseline tables + 5 from spec 01
-(Express Checkout) + 4 from spec 02 (Group / Family Applications). **No views
-or materialized views exist.** The 8 baseline tables share the 30-column
-envelope defined below; the 9 spec tables each use a smaller subset of it
-(see each page). Every page covers only its own event-specific columns.
+Twenty-two event tables in `clickathon`: 8 baseline tables + 5 from spec 01
+(Express Checkout) + 4 from spec 02 (Group / Family Applications) + 5 from
+spec 03 (Visa Status Sharing). **No views or materialized views exist.** The
+8 baseline tables share the 30-column envelope defined below; the 14 spec
+tables each use a smaller subset of it (see each page). Every page covers
+only its own event-specific columns.
 
 | Table | Role | Rows | Users | Step-through |
 |---|---|---:|---:|---:|
@@ -35,6 +36,15 @@ envelope defined below; the 9 spec tables each use a smaller subset of it
 | [traveller_added](traveller_added.md) | group flow (fan-out) | 3,495 | 1,200† | — |
 | [traveller_removed](traveller_removed.md) | group flow (churn) | 70 | 69† | — |
 | [group_submitted](group_submitted.md) | **group conversion** | 688 | 688 | **57.33%**‡ |
+| [share_clicked](share_clicked.md) | share flow | 1,600 | 1,600 | — |
+| [channel_selected](channel_selected.md) | share flow | 1,144 | 1,144 | 71.5%§ |
+| [link_generated](link_generated.md) | share flow | 1,144 | 1,144 | n/a§ |
+| [link_opened](link_opened.md) | share flow (recipient) | 2,310 | n/a†† | n/a§ |
+| [recipient_cta_clicked](recipient_cta_clicked.md) | **share K-factor** | 305 | n/a†† | 13.2%§ |
+
+`††` `link_opened`/`recipient_cta_clicked` carry **no `user_id` column at
+all** (recipient-side, per D6 — the constraint doesn't apply since there's
+no column to check); "Users" is not applicable, not zero. See D6.
 
 `†` `traveller_added`/`traveller_removed` break the "one row per user"
 pattern the other 15 tables share — a group owner can add/remove multiple
@@ -55,6 +65,37 @@ independently re-confirmed by all 4 of `analysis/q01.md`–`q04.md`, none of
 which found a working `application_id` path) — same STOP verdict as spec
 01; treat as a standalone flow, not joinable to the main funnel.
 
+`§` Spec 03 (Status Sharing) step-through: `share_clicked → channel_selected`
+(71.5%) is now a **verified** set-membership join on `share_id`
+(`analysis/q01.md`, 2026-08-02), flat across `status_shared` (70.1%–73.3%,
+no monotonic pattern) — see
+[metrics/share_completion_rate.md](../metrics/share_completion_rate.md).
+`channel_selected` and `link_generated` have byte-for-byte identical column
+sets, exactly 1,144 rows each, and are now **confirmed** (not just flagged)
+to hold the exact same 1,144 `share_id`s in every status bucket —
+functionally a 1:1 pairing (`analysis/q01.md`). The recipient-side leg
+(`link_opened → recipient_cta_clicked`) is also **verified** 100% by set
+membership (`analysis/q03.md`) — see
+[metrics/recipient_conversion_k_factor.md](../metrics/recipient_conversion_k_factor.md)
+for the resulting K-factor (~38% pure-new-user / 0% pure-existing-user,
+after correcting for a `recipient_is_new_user` self-contradiction found in
+51.2% of shares — a D3-shaped flag issue). **Still unverified:** the
+sharer-side ↔ recipient-side leg itself (e.g. `link_generated.share_id` vs.
+`link_opened.share_id`) — no `analysis/qNN.md` file has checked it yet.
+Channel mix (WhatsApp 54.6% of selections, also the top new-user-open
+channel at 61.5%) and destination spread (AU leads raw reach, AE leads
+conversion efficiency at 16.37%) are also now verified — see
+[channel_selected.md](channel_selected.md),
+[link_opened.md](link_opened.md), and
+[recipient_cta_clicked.md](recipient_cta_clicked.md).
+⚠ 3 of the 5 Status Sharing tables' `application_id`
+(`share_clicked`/`channel_selected`/`link_generated`) returned **0%
+overlap** against `application_started` (D2 verify, `load_report.md`,
+2026-08-02, independently re-confirmed by all 4 of `analysis/q01.md`–
+`q04.md`, none of which found a working `application_id` path) — same STOP
+verdict as specs 01 and 02; treat as a standalone flow. `link_opened`/
+`recipient_cta_clicked` carry no `application_id` at all.
+
 `*` Express Checkout step-through figures were originally row-count ratios
 from `load_report.md`, not verified set-membership joins (D1). **2026-08-02
 update:** two of the three transitions are now **verified** exact
@@ -69,10 +110,11 @@ row-count ratio — see each table's page. ⚠ All 5 Express Checkout tables'
 verify, `load_report.md`, re-confirmed independently by `analysis/q01.md`–
 `q04.md`) — they do not join to the main funnel; treat as a standalone flow.
 
-**Total: 2,491,441 rows** (2,480,481 baseline + 5,507 Express Checkout +
-5,453 Group/Family). Data window: 2025-12-31 23:41 → 2026-07-01 03:01
-(baseline); Express Checkout sample: 2026-06-08 → 2026-06-28; Group/Family
-sample: 2026-06-08 → 2026-06-28 (same window, per profile.md).
+**Total: 2,497,944 rows** (2,480,481 baseline + 5,507 Express Checkout +
+5,453 Group/Family + 6,503 Status Sharing). Data window: 2025-12-31 23:41 →
+2026-07-01 03:01 (baseline); Express Checkout sample: 2026-06-08 →
+2026-06-28; Group/Family sample: 2026-06-08 → 2026-06-28; Status Sharing
+sample: 2026-06-08 06:00 → 2026-07-01 09:21 (per profile.md).
 
 ---
 
@@ -134,6 +176,15 @@ group_size, group_id, id)` — `group_size` and `group_id` replace spec 01's
 and the PM's questions are phrased per-group, not per-user (`group_size` is
 also the PM's most-cited dimension for this spec). See
 [group_started](group_started.md) for the full reasoning.
+
+**The 5 Status Sharing tables (spec 03) also follow D8, each substituting
+its own leading discriminator.** `ENGINE = MergeTree` throughout;
+`share_clicked` → `(toDate(timestamp), status_shared, user_id, id)`;
+`channel_selected`/`link_generated` → `(toDate(timestamp), channel,
+user_id, id)`; the 2 recipient-side tables (no `user_id`) →
+`(toDate(timestamp), channel, share_id, id)` and `(toDate(timestamp),
+destination, share_id, id)` respectively. See
+[share_clicked](share_clicked.md) and its 4 sibling pages.
 
 ## Two corrections to base_context's table model
 

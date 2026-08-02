@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlys Analytics</title>
+<link rel="icon" href="data:," />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">📊 Atlys Analytics</div>
+      <button id="newChatBtn" class="new-chat-btn" type="button">✏️ New chat</button>
+      <button id="onboardBtn" class="nav-item" type="button">📤 Onboard spec</button>
+      <div class="chats-label">CHATS</div>
+      <div id="chatList" class="chat-list"></div>
+    </aside>
+
+    <main class="main">
+      <section id="chatView" class="view">
+        <div id="hero" class="hero">
+          <h1>Where should we begin?</h1>
+          <p>live answers from the <code>clickathon</code> ClickHouse database.</p>
+        </div>
+        <div id="messages" class="messages"></div>
+      </section>
+
+      <section id="onboardView" class="view" style="display:none;">
+        <div id="onboardFormSection">
+          <h2>📤 Onboard a new spec</h2>
+          <p class="muted">
+            Upload a feature spec's <code>spec.md</code> and <code>events.ndjson</code>.
+            This runs the full pipeline: Instrumentation Agent → Loader →
+            Context Agent → Question Extractor → Analysis Agent.
+          </p>
+
+          <label class="field-label" for="specNameInput">Spec name</label>
+          <input id="specNameInput" type="text" placeholder="e.g. 06_new_feature" class="text-input" autocomplete="off" />
+
+          <label class="field-label">spec.md</label>
+          <div id="specMdDropzone" class="dropzone">
+            <input type="file" id="specMdInput" accept=".md" class="dropzone-input" />
+            <div class="dropzone-empty">
+              <span class="dropzone-icon">📄</span>
+              <span>Click to upload or drag and drop <strong>spec.md</strong></span>
+            </div>
+            <div class="dropzone-file" style="display:none;">
+              <span class="dropzone-file-icon">📄</span>
+              <span class="dropzone-file-name"></span>
+              <button type="button" class="dropzone-remove" aria-label="Remove file">✕</button>
+            </div>
+          </div>
+
+          <label class="field-label">events.ndjson</label>
+          <div id="eventsDropzone" class="dropzone">
+            <input type="file" id="eventsInput" accept=".ndjson,.jsonl,.json" class="dropzone-input" />
+            <div class="dropzone-empty">
+              <span class="dropzone-icon">🗂️</span>
+              <span>Click to upload or drag and drop <strong>events.ndjson</strong></span>
+            </div>
+            <div class="dropzone-file" style="display:none;">
+              <span class="dropzone-file-icon">🗂️</span>
+              <span class="dropzone-file-name"></span>
+              <button type="button" class="dropzone-remove" aria-label="Remove file">✕</button>
+            </div>
+          </div>
+
+          <button id="runOrchestratorBtn" class="run-btn" type="button" disabled>🚀 Run orchestrator</button>
+        </div>
+
+        <div id="onboardCollapsedBar" class="onboard-collapsed-bar" style="display:none;">
+          <span id="onboardCollapsedLabel"></span>
+          <button id="onboardAnotherBtn" class="nav-item onboard-another-btn" type="button" style="display:none;">➕ Onboard another spec</button>
+        </div>
+
+        <div id="onboardStatus" class="onboard-status"></div>
+        <div id="onboardPipeline" class="pipeline" style="display:none;"></div>
+        <div id="onboardStepList" class="step-list" style="display:none;"></div>
+        <details id="onboardRawDetails" class="raw-log-details" style="display:none;">
+          <summary>Show raw log</summary>
+          <pre id="onboardRawLog" class="log-box"></pre>
+        </details>
+        <div id="onboardResults" class="onboard-results"></div>
+
+        <button id="backToChatBtn" class="back-btn" type="button">← Back to chat</button>
+      </section>
+    </main>
+  </div>
+
+  <div id="chatInputBar" class="chat-input-bar">
+    <div class="chat-input-pill">
+      <textarea id="promptInput" placeholder="Ask a question about the Atlys funnel data..." rows="1"></textarea>
+      <button id="sendBtn" type="button" aria-label="Send">↑</button>
+    </div>
+  </div>
+
+  <script src="markdown.js"></script>
+  <script src="steps.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
