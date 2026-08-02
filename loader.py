@@ -407,6 +407,7 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
     skipped_fixes = [i for i in cited_ids if i not in fix_blocks]
 
     buckets = bucket_events(events_path)
+    unmapped = {ev: len(rows) for ev, rows in buckets.items() if ev not in tables}
 
     client = get_client()
     for stmt in split_ddl_statements(ddl_text):
@@ -417,6 +418,7 @@ def run(spec_dir: Path, out_dir: Path, context_dir: Path) -> dict:
         "cited_ids": cited_ids,
         "skipped_fixes": skipped_fixes,
         "materialized_views": [],
+        "unmapped_events": unmapped,
     }
 
     # MVs are incremental-only in ClickHouse (see query-mv-incremental.md) --
@@ -502,6 +504,12 @@ def render_report(spec_name: str, report: dict) -> str:
         lines.append(
             f"Cited but not loader-actionable (no fix block): {', '.join(report['skipped_fixes'])}"
         )
+    if report["unmapped_events"]:
+        for ev, n in report["unmapped_events"].items():
+            lines.append(
+                f"- NOT LOADED - no CREATE TABLE target for event `{ev}` ({n} rows). "
+                f"If this event was ALTERed into an existing table, its rows were NOT inserted."
+            )
     if report["materialized_views"]:
         lines.append("## Materialized views")
         for mv in report["materialized_views"]:
