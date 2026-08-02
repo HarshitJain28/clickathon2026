@@ -31,16 +31,16 @@ Create a `.env` in the repo root. Every script loads it automatically via
 CLAUDE_OAUTH_TOKEN="sk-ant-oat01-..."
 
 # --- ClickHouse Cloud (required for the Loader) --------------------------
-CLICKHOUSE_HOST="<your-service>.clickhouse.cloud"
+CLICKHOUSE_HOST="jrb2cafd4r.ap-south-1.aws.clickhouse.cloud"
 CLICKHOUSE_PORT="8443"
 CLICKHOUSE_USER="default"
-CLICKHOUSE_PASSWORD="..."
+CLICKHOUSE_PASSWORD=".MwRKmUgG1nge"
 CLICKHOUSE_DATABASE="clickathon"
 CLICKHOUSE_SECURE="true"
 
 # --- Langfuse tracing (optional but recommended) -------------------------
-LANGFUSE_PUBLIC_KEY="pk-lf-..."
-LANGFUSE_SECRET_KEY="sk-lf-..."
+LANGFUSE_SECRET_KEY="sk-lf-274fc3ca-1d12-4c89-9101-83a65f7717ef"
+LANGFUSE_PUBLIC_KEY="pk-lf-989642f5-3d21-4abd-b72c-cea3963cdc87"
 LANGFUSE_BASE_URL="https://cloud.langfuse.com"
 ```
 
